@@ -27,5 +27,10 @@ dist-ssr
 *.sln
 *.sw?
 
+# Firebase service account keys
+*service-account*.json
+*adminsdk*.json
+*-firebase-*.json
+
 # Build files
 *.tsbuildinfo
