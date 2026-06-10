@@ -1,12 +1,12 @@
 {
-  "name": "wormhole-server",
+  "name": "wormhole",
   "version": "1.0.0",
   "description": "Backend server for synchronizing multiple OpenSpace instances",
   "main": "dist/index.js",
   "type": "commonjs",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "preview": "node dist/index.js",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
