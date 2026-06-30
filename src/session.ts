@@ -50,7 +50,8 @@ export class Session {
 
   /**
    * The clear-text password that peers need to provide to connect. This password has a
-   * maximum length of 65535 characters and can consist only of ASCII characters
+   * maximum length of 65535 characters and can consist only of ASCII characters.
+   * An empty string means the room is public and any password is accepted.
    */
   private password: string;
 
@@ -89,12 +90,12 @@ export class Session {
    */
   constructor(
     name: string,
-    password: string,
+    password: string | null,
     hostPassword: string,
     id: string | null = null
   ) {
     this.name = name;
-    this.password = password;
+    this.password = password ?? '';
     this.hostPassword = hostPassword;
     if (id) {
       this.id = id;
@@ -204,7 +205,7 @@ export class Session {
     password: string,
     hostPassword: string | null
   ): boolean {
-    if (password !== this.password) {
+    if (this.password !== '' && password !== this.password) {
       LDEBUG(`Session ${this.name}: Invalid password`);
       return false;
     }

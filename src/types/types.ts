@@ -1,13 +1,12 @@
 import { Socket } from 'net';
 
-export type ServerInstanceData = {
+export type SessionData = {
   id: string;
   active: boolean;
   inactiveTimeStamp: number;
   created: number;
   usage: number;
-  password: string;
-  hostPassword: string;
+  password: string | null;
   nPeers: number;
   currentHost: string;
   roomName: string;
@@ -16,7 +15,7 @@ export type ServerInstanceData = {
   owner: string | null;
 };
 
-export type InstanceHistoryData = {
+export type SessionHistoryData = {
   id: string;
   inactiveTimeStamp: number;
   created: number;

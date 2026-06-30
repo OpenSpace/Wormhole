@@ -29,7 +29,7 @@ import {
   MessageType,
   Peer
 } from './types/types';
-import { LDEBUG, LERROR, LINFO } from './utils';
+import { LDEBUG, LERROR, LINFO, toString } from './utils';
 import * as net from 'net';
 
 /**
@@ -40,37 +40,37 @@ export class Wormhole {
   /**
    * The port on which this TCP server is listening
    */
-  private port: number;
+  private _port: number;
 
-  private peerIdCounter: number;
+  private _peerIdCounter: number;
 
   /**
    * All sessions currently managed by this Wormhole, keyed by session name.
    */
-  private instances: { [name: string]: Session } = {};
+  private _sessions: { [name: string]: Session } = {};
 
   /**
    * The local server that is listening to incoming connections that will result in Peers
    */
-  private server: net.Server;
+  private _server: net.Server;
 
   /**
    * @param port The port on which this TCP server should listen for incoming connections.
    * This port must not already be in use on this computer.
    */
   constructor(port: number) {
-    this.port = port;
-    this.peerIdCounter = 0;
+    this._port = port;
+    this._peerIdCounter = 0;
     // Setup the TCP server for handling incoming OpenSpace connections
-    this.server = net.createServer();
+    this._server = net.createServer();
 
-    this.server.on('connection', (socket: net.Socket) => {
+    this._server.on('connection', (socket: net.Socket) => {
       LDEBUG('New connection', socket.remoteAddress);
 
       // The Peer is only added to the list if the authentication is succesful.
       // eslint-disable-next-line prefer-const
       let peer: Peer = {
-        id: this.peerIdCounter, // TODO: assign a unique ID, see comment in ´onEnd´
+        id: this._peerIdCounter, // TODO: assign a unique ID, see comment in ´onEnd´
         name: '',
         socket: socket,
         status: ConnectionStatus.Connecting,
@@ -98,18 +98,18 @@ export class Wormhole {
    */
   public start(): Promise<boolean> {
     return new Promise<boolean>((resolve, reject) => {
-      this.server.on('listening', () => {
-        LINFO(`Wormhole listening on port ${this.port}`);
+      this._server.on('listening', () => {
+        LINFO(`Wormhole listening on port ${this._port}`);
         resolve(true);
       });
 
-      this.server.on('error', (error: Error) => {
-        this.server.close();
+      this._server.on('error', (error: Error) => {
+        this._server.close();
         LERROR(`Error starting server: ${error.message}`);
         reject(error);
       });
 
-      this.server.listen(this.port);
+      this._server.listen(this._port);
     });
   }
 
@@ -121,18 +121,18 @@ export class Wormhole {
    */
   public async addSession(
     name: string,
-    password: string,
+    password: string | null,
     hostPassword: string,
     id: string | null = null
   ): Promise<Session> {
     // If the session already exists, remove it (this *should* not happen)
-    if (name in this.instances) {
-      const oldSession = this.instances[name];
+    if (name in this._sessions) {
+      const oldSession = this._sessions[name];
       await this.removeSession(oldSession.getSessionMetadata().id!);
     }
 
     const session = new Session(name, password, hostPassword, id);
-    this.instances[name] = session;
+    this._sessions[name] = session;
     return session;
   }
 
@@ -140,38 +140,40 @@ export class Wormhole {
    * @return The number of active sessions currently running
    */
   public activeSessions(): number {
-    return Object.keys(this.instances).length;
+    return Object.keys(this._sessions).length;
   }
 
   /**
-   * Removes a session by ID. Disconnects all its peers, then deletes it from the
-   * internal registry. Resolves once all peers have been disconnected.
+   * Removes a session by ID or by Session object reference. Disconnects all peers before
+   * removing from the internal registry. Resolves once all peers have been disconnected.
    *
+   * @param sessionIdOrSession The session ID string, or the Session object directly
    * @return A promise that resolves with a success message, or rejects on error
    */
-  public async removeSession(sessionID: string): Promise<string> {
-    const session = Object.values<Session>(this.instances).find((session: Session) => {
-      return session.getSessionMetadata().id === sessionID;
-    });
+  public async removeSession(sessionIdOrSession: string | Session): Promise<string> {
+    const session =
+      typeof sessionIdOrSession === 'string'
+        ? Object.values(this._sessions).find((session: Session) => {
+            return session.getSessionMetadata().id === sessionIdOrSession;
+          })
+        : sessionIdOrSession;
 
     if (!session) {
-      const errorMsg = `Session '${sessionID}' not found`;
-      LDEBUG(errorMsg);
-      throw new Error(errorMsg);
+      throw new Error('Session not found');
     }
 
+    const { id, sessionName } = session.getSessionMetadata();
     try {
       // Notify all peers that the session is closing
       await session.stop();
-
       // Remove session from internal registry
-      delete this.instances[session.getSessionMetadata().sessionName];
+      delete this._sessions[sessionName];
 
-      const successMsg = `Session "${sessionID}" successfully removed`;
-      LDEBUG(successMsg);
-      return successMsg;
+      const msg = `Session '${id ?? sessionName}' successfully removed`;
+      LDEBUG(msg);
+      return msg;
     } catch (error) {
-      const errorMsg = `Error stopping session "${sessionID}": ${(error as Error).message}`;
+      const errorMsg = `Error stopping session "${sessionIdOrSession}": ${(error as Error).message}`;
       LERROR(errorMsg);
       throw error;
     }
@@ -229,7 +231,7 @@ export class Wormhole {
     offset += Uint32Array.BYTES_PER_ELEMENT;
     if (data.byteLength !== offset + messageSize) {
       LDEBUG('The provided message size was not the same as the actual message length');
-      LDEBUG(`Received message type: ${messageType}`);
+      LDEBUG(`Received message type: ${toString(messageType)}`);
       LDEBUG(`Header size: ${HeaderSize}`);
       LDEBUG(`Data size: ${data.byteLength}`);
       LDEBUG(`Data byteoffset: ${data.byteOffset}`);
@@ -271,7 +273,7 @@ export class Wormhole {
   private onEnd(peer: Peer): void {
     LDEBUG(`Peer ${peer.id} disconnected, closing connection`);
     // Get the session that the peer is connected to
-    const session = this.instances[peer.sessionName];
+    const session = this._sessions[peer.sessionName];
 
     if (!session) {
       LDEBUG(`Session "${peer.sessionName}" not found`);
@@ -300,12 +302,10 @@ export class Wormhole {
     let offset = 0;
     const passwordLength = dv.getUint16(offset, true);
     offset += Uint16Array.BYTES_PER_ELEMENT;
-    if (passwordLength === 0) {
-      // The password length cannot be zero
-      LDEBUG('Invalid password length');
-      return;
-    }
-    const password = data.subarray(offset, offset + passwordLength).toString('utf-8');
+    const password =
+      passwordLength === 0
+        ? ''
+        : data.subarray(offset, offset + passwordLength).toString('utf-8');
     offset += passwordLength;
 
     const hostPasswordLength = dv.getUint16(offset, true);
@@ -332,15 +332,15 @@ export class Wormhole {
         : data.subarray(offset, offset + nameLength).toString('utf-8');
 
     // Get the session that this peer is trying to connect to
-    const session = this.instances[sessionName];
+    const session = this._sessions[sessionName];
     if (!session) {
-      LDEBUG(`No session with name ${sessionName} found`);
+      LDEBUG(`No session with name '${sessionName}' found`);
       return;
     }
 
     const authenticated = session.handleAuthentication(peer, password, hostPassword);
     if (authenticated) {
-      this.peerIdCounter++;
+      this._peerIdCounter++;
     }
   }
 
@@ -352,7 +352,7 @@ export class Wormhole {
    * @param peer The Peer from which this message is coming
    */
   private handleData(data: Buffer, peer: Peer): void {
-    const session = this.instances[peer.sessionName];
+    const session = this._sessions[peer.sessionName];
     if (!session) {
       LDEBUG(`No session with name '${peer.sessionName}' found`);
       return;
@@ -369,9 +369,9 @@ export class Wormhole {
    * @param peer The Peer from which this message arrived
    */
   private handleHostshipRequest(data: Buffer, peer: Peer): void {
-    const session = this.instances[peer.sessionName];
+    const session = this._sessions[peer.sessionName];
     if (!session) {
-      LDEBUG(`No session with name ${peer.sessionName} found`);
+      LDEBUG(`No session with name '${peer.sessionName}' found`);
       return;
     }
 
@@ -387,9 +387,9 @@ export class Wormhole {
    * @param peer The Peer from which this message arrived
    */
   private handleHostshipResignation(_: Buffer, peer: Peer): void {
-    const session = this.instances[peer.sessionName];
+    const session = this._sessions[peer.sessionName];
     if (!session) {
-      LDEBUG(`No session with name ${peer.sessionName} found`);
+      LDEBUG(`No session with name '${peer.sessionName}' found`);
       return;
     }
     session.handleHostshipResignation(peer);
