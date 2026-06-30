@@ -76,4 +76,11 @@ export type Peer = {
    * The name of the session this peer is connected to
    */
   sessionName: string;
+
+  /**
+   * Accumulates bytes received on the socket that have not yet formed a complete message.
+   * TCP Gives no guarantee that a single 'data' event aligns with a single
+   * application-level message. As such, we must parse the messages.
+   */
+  recvBuffer: Buffer;
 };

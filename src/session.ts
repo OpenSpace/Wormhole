@@ -216,10 +216,10 @@ export class Session {
     // If there is currently no host and this peer provided the host password
     // we promote them to hostship
     if (this.currentHostId === null && hostPassword === this.hostPassword) {
-      LDEBUG(`Session ${this.name}: Connection ${peer.id} ${peer.name} promoted to host`);
+      LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} promoted to host`);
       this.assignHost(peer);
     } else {
-      LDEBUG(`Session ${this.name}: Connection ${peer.id} ${peer.name} is client`);
+      LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} is client`);
       peer.status =
         this.currentHostId === null
           ? ConnectionStatus.ClientWithoutHost
@@ -245,12 +245,13 @@ export class Session {
     if (peer.id === this.currentHostId) {
       console.assert(
         peer.status === ConnectionStatus.Host,
-        `Server ${this.name}: Peer '${peer.id}' is host but status is not set to host`
+        `Session ${this.name}: Peer #${peer.id} is host but status is not set to host`
       );
 
+      const message = this.buildMessage(MessageType.Data, data);
       this.peers.forEach((peer: Peer) => {
         if (peer.status === ConnectionStatus.ClientWithHost) {
-          this.sendMessage(peer, MessageType.Data, data);
+          this.writeMessage(peer, message);
         }
       });
     }
@@ -265,7 +266,7 @@ export class Session {
    * @param peer The Peer from which this message arrived
    */
   public handleHostshipRequest(data: Buffer, peer: Peer): void {
-    LDEBUG(`Session ${this.name}: Peer ${peer.id} ${peer.name} requested hostship`);
+    LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} requested hostship`);
 
     const dv = new DataView(
       data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
@@ -284,13 +285,13 @@ export class Session {
     if (password !== this.hostPassword) {
       // Wrong password so we don't do anything
       LDEBUG(
-        `Session ${this.name}: Peer ${peer.id} ${peer.name} provided incorrect host password`
+        `Session ${this.name}: Peer #${peer.id} ${peer.name} provided incorrect host password`
       );
       return;
     }
 
     if (peer.id === this.currentHostId) {
-      LDEBUG(`Session ${this.name}: Peer ${peer.id} ${peer.name} is already host`);
+      LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} is already host`);
       return;
     }
 
@@ -305,7 +306,7 @@ export class Session {
    * @param peer The Peer from which this message arrived
    */
   public handleHostshipResignation(peer: Peer): void {
-    LDEBUG(`Session ${this.name}: Peer ${peer.id} ${peer.name} resigned hostship`);
+    LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} resigned hostship`);
 
     // Only remove the host if it was the host peer that requested the resignation
     if (peer.status === ConnectionStatus.Host) {
@@ -314,14 +315,13 @@ export class Session {
   }
 
   /**
-   * Send a message to the provided peer of the provided messageType with the specified
-   * payload data.
+   * Construct a complete message buffer with the provided payload data
    *
-   * @param peer The Peer that will recieve the message
-   * @param messageType The type of message that will be sent
-   * @param payload The payload of the data that is sent
+   * @param messageType The type of message to construct
+   * @param payload The payload of the message
+   * @returns A buffer object holding the constructed message
    */
-  private sendMessage(peer: Peer, messageType: MessageType, payload: Buffer): void {
+  private buildMessage(messageType: MessageType, payload: Buffer): Buffer {
     const buffer = Buffer.alloc(
       'OS'.length + // OS prefix
         Uint8Array.BYTES_PER_ELEMENT + // protocol version number
@@ -353,11 +353,31 @@ export class Session {
 
     // Copy the payload into the message
     payload.copy(buffer, offset);
+    return buffer;
+  }
 
+  /**
+   * Write the `message` to the provided `peer`
+   * @param peer The peer that will recieve the message
+   * @param message The message payload data that is sent
+   */
+  private writeMessage(peer: Peer, message: Buffer): void {
     LDEBUG(
-      `Session ${this.name}: Sending to peer with id: '${peer.id}', name: '${peer.name}', data: '${buffer}`
+      `Session ${this.name}: Sending to peer with id: #${peer.id}, name: '${peer.name}'`
     );
-    peer.socket.write(buffer);
+    peer.socket.write(message);
+  }
+
+  /**
+   * Send a message to the provided peer of the provided messageType with the specified
+   * payload data.
+   *
+   * @param peer The Peer that will recieve the message
+   * @param messageType The type of message that will be sent
+   * @param payload The payload of the data that is sent
+   */
+  private sendMessage(peer: Peer, messageType: MessageType, payload: Buffer): void {
+    this.writeMessage(peer, this.buildMessage(messageType, payload));
   }
 
   /**
@@ -367,7 +387,7 @@ export class Session {
    */
   private sendConnectionStatus(peer: Peer): void {
     LDEBUG(
-      `Session ${this.name}: Sending connection status to peer with id: '${peer.id}', name: '${peer.name}'`
+      `Session ${this.name}: Sending connection status to peer with id: #${peer.id}, name: '${peer.name}'`
     );
 
     const host = this.currentHost();
@@ -405,9 +425,10 @@ export class Session {
     const buffer = Buffer.alloc(Uint32Array.BYTES_PER_ELEMENT); // Number of connections
     const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     dv.setUint32(0, this.peers.length, true);
-    this.peers.forEach((peer: Peer) => {
-      this.sendMessage(peer, MessageType.NConnections, buffer);
-    });
+
+    const message = this.buildMessage(MessageType.NConnections, buffer);
+
+    this.peers.forEach((peer: Peer) => this.writeMessage(peer, message));
     // Update the server status depending on if there still are any users connected
     const isServerActive = this.peers.length > 0;
     updateActiveSessionStatus(this.id!, isServerActive);
@@ -424,7 +445,7 @@ export class Session {
 
     const idx = this.peers.findIndex((peer: Peer) => peer.id === this.currentHostId);
     if (idx === -1) {
-      LDEBUG(`Could not find host with id ${this.currentHostId}`);
+      LDEBUG(`Could not find host with id '${this.currentHostId}'`);
       return null;
     }
 

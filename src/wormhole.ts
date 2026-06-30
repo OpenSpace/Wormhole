@@ -29,8 +29,11 @@ import {
   MessageType,
   Peer
 } from './types/types';
-import { LDEBUG, LERROR, LINFO, toString } from './utils';
+import { LDEBUG, LERROR, LINFO } from './utils';
 import * as net from 'net';
+
+const NeedMoreData = 0;
+const ProtocolError = -1;
 
 /**
  * A TCP server that listens on a single port and routes incoming OpenSpace connections
@@ -66,6 +69,7 @@ export class Wormhole {
 
     this._server.on('connection', (socket: net.Socket) => {
       LDEBUG('New connection', socket.remoteAddress);
+      socket.setNoDelay(true);
 
       // The Peer is only added to the list if the authentication is succesful.
       // eslint-disable-next-line prefer-const
@@ -74,7 +78,8 @@ export class Wormhole {
         name: '',
         socket: socket,
         status: ConnectionStatus.Connecting,
-        sessionName: ''
+        sessionName: '',
+        recvBuffer: Buffer.alloc(0)
       };
 
       socket.on('data', (data: Buffer) => {
@@ -84,7 +89,7 @@ export class Wormhole {
         this.onEnd(peer);
       });
       socket.on('error', (error) => {
-        LERROR(`Error: ${error} from peer ${peer.id}`);
+        LERROR(`Error peer #${peer.id}: ${error}`);
         this.onEnd(peer);
       });
     });
@@ -180,69 +185,95 @@ export class Wormhole {
   }
 
   /**
-   * Handles incoming data packages on the socket. We unpack the message and bail early
-   * if there are any errors in the provided message. A valid message is then forwarded
-   * to the appropriate handlers.
+   * Handles incoming raw bytes from the peer's socket. TCP gives no guarantee that a
+   * single 'data' event aligns with a single application-level message, i.e., a message
+   * can arrive split across several events, or several messages can arrived coalesced
+   * into one event.
    *
    * @param data The data package that was received on the socket
    * @param peer The Peer from which this message arrived
    */
   private onData(data: Buffer, peer: Peer): void {
+    peer.recvBuffer =
+      peer.recvBuffer.length === 0 ? data : Buffer.concat([peer.recvBuffer, data]);
+
+    // Keep extracting messages for as long as the buffer holds a complete one
+    let consumed = this.processMessage(peer);
+    while (consumed > NeedMoreData) {
+      peer.recvBuffer = peer.recvBuffer.subarray(consumed);
+      consumed = this.processMessage(peer);
+    }
+
+    if (consumed === ProtocolError) {
+      LDEBUG(`Peer #${peer.id}: connection terminated after protocol error`);
+    }
+  }
+
+  /**
+   * Attempts to parse and sipatch a single complete message from the front of
+   * `peer.recvBuffer`. If the buffer does not yet hold a full header, or a full header
+   * plus its playload, no action is taken. If the header is malformed, the stream is
+   * considered unrecoverable.
+   * @param peer The Peer whose buffer should be parsed
+   * @returns The nubmer of bytes (header + payload) consumed from the front of the
+   * buffer. Returns 0 if no complete message could be extracted, which happens either
+   * becasue more data is still needed, or because the connection was just terminated due
+   * to a protocol error
+   */
+  private processMessage(peer: Peer): number {
     const HeaderSize =
       'OS'.length + // OS prefix
-      Uint8Array.BYTES_PER_ELEMENT + // protocol version number
-      Uint8Array.BYTES_PER_ELEMENT + // message type identifier
-      Uint32Array.BYTES_PER_ELEMENT; // payload size in bytes
+      Uint8Array.BYTES_PER_ELEMENT + // Protocol version number
+      Uint8Array.BYTES_PER_ELEMENT + // Message type identifier
+      Uint32Array.BYTES_PER_ELEMENT; // Payload size in bytes
 
-    // Exit early if we don't have a valid header information
-    if (data.length < HeaderSize) {
-      LDEBUG('Invalid header information');
-      return;
+    const buffer = peer.recvBuffer;
+
+    if (buffer.length < HeaderSize) {
+      return NeedMoreData; // Header hasn't fully arrived yet
     }
 
-    const prefix = data.subarray(0, 2).toString('utf-8');
-    if (prefix !== 'OS') {
-      LDEBUG(`The message did not start with OS prefix, invalid message: '${prefix}'`);
-      return;
+    // Check the prefix matches 'OS'
+    if (buffer[0] !== 0x4f || buffer[1] !== 0x53) {
+      LERROR(
+        `Peer #${peer.id}: stream desynced, expected 'OS' prefix, got ` +
+          `'${buffer.subarray(0, 2).toString('utf-8')}`
+      );
+      peer.socket.destroy(new Error('Protocol desync'));
+      return ProtocolError;
     }
 
-    const dv = new DataView(
-      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-    );
-
+    const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     let offset = 'OS'.length;
+
     const protocolVersion = dv.getUint8(offset);
     offset += Uint8Array.BYTES_PER_ELEMENT;
     if (protocolVersion !== CurrentProtocolVersion) {
-      LDEBUG(
-        `Invalid protocol version: '${protocolVersion}', expected: '${CurrentProtocolVersion}'`
-      );
-      return;
+      LERROR(`Peer ${peer.id}: invalid protocol version '${protocolVersion}'`);
+      peer.socket.destroy(new Error('Protocol version mismatch'));
+      return ProtocolError;
     }
 
     const messageType = dv.getUint8(offset);
     offset += Uint8Array.BYTES_PER_ELEMENT;
     if (!(messageType in MessageType)) {
-      LDEBUG(`Invalid message type: '${messageType}'`);
-      return;
+      LERROR(`Peer ${peer.id}: invalid message type '${messageType}'`);
+      peer.socket.destroy(new Error('Invalid message type'));
+      return ProtocolError;
     }
 
-    const messageSize = dv.getUint32(offset, true);
+    const payloadSize = dv.getUint32(offset, true);
     offset += Uint32Array.BYTES_PER_ELEMENT;
-    if (data.byteLength !== offset + messageSize) {
-      LDEBUG('The provided message size was not the same as the actual message length');
-      LDEBUG(`Received message type: ${toString(messageType)}`);
-      LDEBUG(`Header size: ${HeaderSize}`);
-      LDEBUG(`Data size: ${data.byteLength}`);
-      LDEBUG(`Data byteoffset: ${data.byteOffset}`);
-      LDEBUG(`Message size: ${messageSize}`);
-      LDEBUG(`Offset: ${offset}`);
-      return;
+    const messageSize = offset + payloadSize;
+
+    if (buffer.byteLength < messageSize) {
+      return NeedMoreData; // Payload hasn't fully arrived yet
     }
 
     // Slice the header data from the message
-    const messagePayload = data.subarray(offset);
+    const messagePayload = buffer.subarray(offset, messageSize);
 
+    // Dispatch message
     switch (messageType) {
       case MessageType.Authentication:
         this.handleAuthentication(messagePayload, peer);
@@ -257,6 +288,8 @@ export class Wormhole {
         this.handleHostshipResignation(messagePayload, peer);
         break;
     }
+
+    return messageSize;
   }
 
   /**

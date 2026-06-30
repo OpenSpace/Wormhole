@@ -294,8 +294,6 @@ export class App {
     const token = authHeader.slice(7);
     const sessionId = req.params.id;
 
-    LERROR('handleGetHostPassword called with sessionId:', sessionId);
-
     if (!sessionId || typeof sessionId !== 'string') {
       res.status(400).json({ error: 'Session ID is required' });
       return;

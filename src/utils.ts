@@ -23,7 +23,6 @@
  ****************************************************************************************/
 
 import { env } from './config/env';
-import { MessageType } from './types/types';
 
 // Color codes for console logs
 const FgRed = '\x1b[31m';
@@ -62,23 +61,4 @@ export function LERROR(message: string, ...params: any[]): void {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function LINFO(message: string, ...params: any[]): void {
   console.log(FgWhite, message, ...params);
-}
-
-export function toString(messageType: MessageType) {
-  switch (messageType) {
-    case MessageType.Authentication:
-      return 'Authentication';
-    case MessageType.ConnectionStatus:
-      return 'ConnectionStatus';
-    case MessageType.Data:
-      return 'Data';
-    case MessageType.HostshipRequest:
-      return 'HostshipRequest';
-    case MessageType.HostshipResignation:
-      return 'HostshipResignation';
-    case MessageType.NConnections:
-      return 'NConnections';
-    default:
-      throw new Error(`Missing implementation case for '${messageType}'`);
-  }
 }
