@@ -163,10 +163,6 @@ export class Session {
    * peers and free up the ID slot. If the Peer that disconnected was the host, we
    * inform all connected peers that they no longer have a host.
    *
-   * TODO: Currently we assign the ID of a connected peer by the length of the array of
-   * connected peers. If there are 2 peers connected and the first one disconnects and
-   * then reconnects, both peers will end up with ID = 1.
-   *
    * @param peer The Peer that just disconnected
    */
   public onEnd(peer: Peer): void {
@@ -188,49 +184,6 @@ export class Session {
     this.sendNumberOfConnections();
 
     LDEBUG(`Session ${this.name}: Number of connections remaining: ${this.peers.length}`);
-  }
-
-  /**
-   * Handles the incoming authentication method by the provided peer. If the
-   * authentication is valid and contains the correct password, the peer is added to the
-   * list in the group. If the host password is also correct and there is no currently
-   * assigned host, the peer is automatically promoted to hostship too.
-   *
-   * @param data The payload of the authentication message
-   * @param peer The Peer from which this message arrived
-   * @return True if the authentication was successful, false otherwise
-   */
-  public handleAuthentication(
-    peer: Peer,
-    password: string,
-    hostPassword: string | null
-  ): boolean {
-    if (this.password !== '' && password !== this.password) {
-      LDEBUG(`Session ${this.name}: Invalid password`);
-      return false;
-    }
-
-    // We can add this peer to the list of all peers in the group
-    this.peers.push(peer);
-
-    // If there is currently no host and this peer provided the host password
-    // we promote them to hostship
-    if (this.currentHostId === null && hostPassword === this.hostPassword) {
-      LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} promoted to host`);
-      this.assignHost(peer);
-    } else {
-      LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} is client`);
-      peer.status =
-        this.currentHostId === null
-          ? ConnectionStatus.ClientWithoutHost
-          : ConnectionStatus.ClientWithHost;
-
-      this.sendConnectionStatus(peer);
-    }
-
-    this.sendNumberOfConnections();
-    updateUsage(this.id!);
-    return true;
   }
 
   /**
@@ -312,6 +265,49 @@ export class Session {
     if (peer.status === ConnectionStatus.Host) {
       this.removeHostship();
     }
+  }
+
+  /**
+   * Checks whether the provided password grants access to this session. Any empty room
+   * password means the room is public and any password is accepted.
+   *
+   * @param password The room password provided by the peer
+   * @returns True if the password is correct, false otherwise
+   */
+  public isPasswordValid(password: string): boolean {
+    return this.password === '' || password === this.password;
+  }
+
+  /**
+   * Registers an already-validated peer into the session: adds it to the list of
+   * connected peers, and pormotes it to host if it provided the correct host password
+   * and no host is currently assigned. The caller is responsible for having confirmed
+   * the room password, and an existing `peer.id` already being set
+   *
+   * @param peer The Peer to register
+   * @param hostPassword The host password provided by the peer, or null if none was given
+   */
+  public registerPeer(peer: Peer, hostPassword: string | null): void {
+    // We can add this peer to the list of all peers in the group
+    this.peers.push(peer);
+
+    // If there is currently no host and this peer provided the host password
+    // we promote them to hostship
+    if (this.currentHostId === null && hostPassword === this.hostPassword) {
+      LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} promoted to host`);
+      this.assignHost(peer);
+    } else {
+      LDEBUG(`Session ${this.name}: Peer #${peer.id} ${peer.name} is client`);
+      peer.status =
+        this.currentHostId === null
+          ? ConnectionStatus.ClientWithoutHost
+          : ConnectionStatus.ClientWithHost;
+
+      this.sendConnectionStatus(peer);
+    }
+
+    this.sendNumberOfConnections();
+    updateUsage(this.id!);
   }
 
   /**

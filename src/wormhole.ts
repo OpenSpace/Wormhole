@@ -74,7 +74,7 @@ export class Wormhole {
       // The Peer is only added to the list if the authentication is succesful.
       // eslint-disable-next-line prefer-const
       let peer: Peer = {
-        id: this._peerIdCounter, // TODO: assign a unique ID, see comment in ´onEnd´
+        id: -1, // Id is assigned once authentication is attempted, see `handleAuthentication`
         name: '',
         socket: socket,
         status: ConnectionStatus.Connecting,
@@ -293,13 +293,7 @@ export class Wormhole {
   }
 
   /**
-   * Handles the disconnection of a peer. We remove the Peer from the list of connected
-   * peers and free up the ID slot. If the Peer that disconnected was the host, we
-   * inform all connected peers that they no longer have a host.
-   *
-   * TODO: Currently we assign the ID of a connected peer by the length of the array of
-   * connected peers. If there are 2 peers connected and the first one disconnects and
-   * then reconnects, both peers will end up with ID = 1.
+   * Handles the disconnection of a peer.
    *
    * @param peer The Peer that just disconnected
    */
@@ -345,7 +339,7 @@ export class Wormhole {
     offset += Uint16Array.BYTES_PER_ELEMENT;
     const hostPassword =
       hostPasswordLength === 0
-        ? ''
+        ? null
         : data.subarray(offset, offset + hostPasswordLength).toString('utf-8');
     offset += hostPasswordLength;
 
@@ -371,10 +365,13 @@ export class Wormhole {
       return;
     }
 
-    const authenticated = session.handleAuthentication(peer, password, hostPassword);
-    if (authenticated) {
-      this._peerIdCounter++;
+    if (!session.isPasswordValid(password)) {
+      LDEBUG(`Peer provided invalid password for session '${sessionName}'`);
+      return;
     }
+
+    peer.id = this._peerIdCounter++;
+    session.registerPeer(peer, hostPassword);
   }
 
   /**
