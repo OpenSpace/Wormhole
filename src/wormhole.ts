@@ -37,14 +37,19 @@ const ProtocolError = -1;
 
 /**
  * A TCP server that listens on a single port and routes incoming OpenSpace connections
- * into their respective named sessions. Manages the full lifecycle of all active sessions.
+ * into their respective named sessions. Manages the full lifecycle of all active
+ * sessions.
  */
 export class Wormhole {
   /**
-   * The port on which this TCP server is listening
+   * The port on which this TCP server is listening.
    */
   private _port: number;
 
+  /**
+   * A global id that is assigned to connected peers, regardless of session they belong
+   * to.
+   */
   private _peerIdCounter: number;
 
   /**
@@ -53,7 +58,8 @@ export class Wormhole {
   private _sessions: { [name: string]: Session } = {};
 
   /**
-   * The local server that is listening to incoming connections that will result in Peers
+   * The local TCP server that is listening for incoming OpenSpace connections to the
+   * different sessions.
    */
   private _server: net.Server;
 
@@ -68,18 +74,19 @@ export class Wormhole {
     this._server = net.createServer();
 
     this._server.on('connection', (socket: net.Socket) => {
-      LDEBUG('New connection', socket.remoteAddress);
+      LDEBUG(`Wormhole: new connection from ${socket.remoteAddress}`);
       socket.setNoDelay(true);
 
-      // The Peer is only added to the list if the authentication is succesful.
+      // The peer is only added to the list if the authentication is succesful. Note: the
+      // `Id` is assigned once authentication is attempted, see `handleAuthentication`
       // eslint-disable-next-line prefer-const
       let peer: Peer = {
-        id: -1, // Id is assigned once authentication is attempted, see `handleAuthentication`
+        id: -1,
         name: '',
         socket: socket,
         status: ConnectionStatus.Connecting,
         sessionName: '',
-        recvBuffer: Buffer.alloc(0)
+        buffer: Buffer.alloc(0)
       };
 
       socket.on('data', (data: Buffer) => {
@@ -89,28 +96,28 @@ export class Wormhole {
         this.onEnd(peer);
       });
       socket.on('error', (error) => {
-        LERROR(`Error peer #${peer.id}: ${error}`);
+        LERROR(`Peer #${peer.id}: socket error`, error);
         this.onEnd(peer);
       });
     });
   }
 
   /**
-   * Starts the TCP server and begins accepting incoming connections.
+   * Starts the TCP server and begin accepting incoming connections.
    *
-   * @return A promise that resolves to true once the server is listening,
-   *         or rejects with an error if the port is unavailable.
+   * @return A promise that resolves to true once the server is listening, or rejects with
+   * an error if the port is unavailable.
    */
   public start(): Promise<boolean> {
     return new Promise<boolean>((resolve, reject) => {
       this._server.on('listening', () => {
-        LINFO(`Wormhole listening on port ${this._port}`);
+        LINFO(`Wormhole: listening on port ${this._port}`);
         resolve(true);
       });
 
       this._server.on('error', (error: Error) => {
         this._server.close();
-        LERROR(`Error starting server: ${error.message}`);
+        LERROR(`Wormhole: failed to start server `, error);
         reject(error);
       });
 
@@ -119,8 +126,8 @@ export class Wormhole {
   }
 
   /**
-   * Creates and registers a new session. If a session with the same name already
-   * exists it is removed first (this should not normally happen).
+   * Creates and registers a new session. If a session with the same name already exists
+   * it is removed first (this should not normally happen).
    *
    * @return The newly created Session
    */
@@ -164,7 +171,7 @@ export class Wormhole {
         : sessionIdOrSession;
 
     if (!session) {
-      throw new Error('Session not found');
+      throw new Error(`Wormhole: session '${sessionIdOrSession}' not found`);
     }
 
     const { id, sessionName } = session.getSessionMetadata();
@@ -173,13 +180,10 @@ export class Wormhole {
       await session.stop();
       // Remove session from internal registry
       delete this._sessions[sessionName];
-
-      const msg = `Session '${id ?? sessionName}' successfully removed`;
-      LDEBUG(msg);
-      return msg;
+      LDEBUG(`Wormhole: session '${id ?? sessionName}' removed`);
+      return `Session '${id ?? sessionName}' successfully removed`;
     } catch (error) {
-      const errorMsg = `Error stopping session "${sessionIdOrSession}": ${(error as Error).message}`;
-      LERROR(errorMsg);
+      LERROR(`Wormhole: session '${id ?? sessionName}' failed to stop`, error);
       throw error;
     }
   }
@@ -194,13 +198,12 @@ export class Wormhole {
    * @param peer The Peer from which this message arrived
    */
   private onData(data: Buffer, peer: Peer): void {
-    peer.recvBuffer =
-      peer.recvBuffer.length === 0 ? data : Buffer.concat([peer.recvBuffer, data]);
+    peer.buffer = peer.buffer.length === 0 ? data : Buffer.concat([peer.buffer, data]);
 
     // Keep extracting messages for as long as the buffer holds a complete one
     let consumed = this.processMessage(peer);
     while (consumed > NeedMoreData) {
-      peer.recvBuffer = peer.recvBuffer.subarray(consumed);
+      peer.buffer = peer.buffer.subarray(consumed);
       consumed = this.processMessage(peer);
     }
 
@@ -210,15 +213,16 @@ export class Wormhole {
   }
 
   /**
-   * Attempts to parse and sipatch a single complete message from the front of
-   * `peer.recvBuffer`. If the buffer does not yet hold a full header, or a full header
+   * Attempts to parse and dispatch a single complete message from the front of
+   * `peer.buffer`. If the buffer does not yet hold a full header, or a full header
    * plus its playload, no action is taken. If the header is malformed, the stream is
    * considered unrecoverable.
+   *
    * @param peer The Peer whose buffer should be parsed
-   * @returns The nubmer of bytes (header + payload) consumed from the front of the
-   * buffer. Returns 0 if no complete message could be extracted, which happens either
-   * becasue more data is still needed, or because the connection was just terminated due
-   * to a protocol error
+   * @return The nubmer of bytes (header + payload) consumed from the front of the
+   * buffer. Return `NeedMoreData` if no complete message could be extracted, which
+   * happens becasue more data is still needed or `ProtocolError` if the connection was
+   * just terminated due to a protocol error
    */
   private processMessage(peer: Peer): number {
     const HeaderSize =
@@ -227,7 +231,7 @@ export class Wormhole {
       Uint8Array.BYTES_PER_ELEMENT + // Message type identifier
       Uint32Array.BYTES_PER_ELEMENT; // Payload size in bytes
 
-    const buffer = peer.recvBuffer;
+    const buffer = peer.buffer;
 
     if (buffer.length < HeaderSize) {
       return NeedMoreData; // Header hasn't fully arrived yet
@@ -237,7 +241,7 @@ export class Wormhole {
     if (buffer[0] !== 0x4f || buffer[1] !== 0x53) {
       LERROR(
         `Peer #${peer.id}: stream desynced, expected 'OS' prefix, got ` +
-          `'${buffer.subarray(0, 2).toString('utf-8')}`
+          `'${buffer.subarray(0, 2).toString('utf-8')}'`
       );
       peer.socket.destroy(new Error('Protocol desync'));
       return ProtocolError;
@@ -249,7 +253,7 @@ export class Wormhole {
     const protocolVersion = dv.getUint8(offset);
     offset += Uint8Array.BYTES_PER_ELEMENT;
     if (protocolVersion !== CurrentProtocolVersion) {
-      LERROR(`Peer ${peer.id}: invalid protocol version '${protocolVersion}'`);
+      LERROR(`Peer #${peer.id}: invalid protocol version '${protocolVersion}'`);
       peer.socket.destroy(new Error('Protocol version mismatch'));
       return ProtocolError;
     }
@@ -257,7 +261,7 @@ export class Wormhole {
     const messageType = dv.getUint8(offset);
     offset += Uint8Array.BYTES_PER_ELEMENT;
     if (!(messageType in MessageType)) {
-      LERROR(`Peer ${peer.id}: invalid message type '${messageType}'`);
+      LERROR(`Peer #${peer.id}: invalid message type '${messageType}'`);
       peer.socket.destroy(new Error('Invalid message type'));
       return ProtocolError;
     }
@@ -298,12 +302,12 @@ export class Wormhole {
    * @param peer The Peer that just disconnected
    */
   private onEnd(peer: Peer): void {
-    LDEBUG(`Peer ${peer.id} disconnected, closing connection`);
+    LDEBUG(`Peer #${peer.id}: disconnected, closing connection`);
     // Get the session that the peer is connected to
     const session = this._sessions[peer.sessionName];
 
     if (!session) {
-      LDEBUG(`Session "${peer.sessionName}" not found`);
+      LDEBUG(`Wormhole: session '${peer.sessionName}' not found`);
       return;
     }
 
@@ -313,14 +317,14 @@ export class Wormhole {
   /**
    * Handles the incoming authentication method by the provided peer. If the
    * authentication is valid and contains the correct password, the peer is added to the
-   * list in the group. If the host password is also correct and there is no currently
+   * list in the session. If the host password is also correct and there is currently no
    * assigned host, the peer is automatically promoted to hostship too.
    *
    * @param data The payload of the authentication message
    * @param peer The Peer from which this message arrived
    */
   private handleAuthentication(data: Buffer, peer: Peer): void {
-    LDEBUG(`Handling authentication for peer ${peer.id}`);
+    LDEBUG(`Wormhole: handling authentication attempt from ${peer.socket.remoteAddress}`);
 
     const dv = new DataView(
       data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
@@ -361,12 +365,12 @@ export class Wormhole {
     // Get the session that this peer is trying to connect to
     const session = this._sessions[sessionName];
     if (!session) {
-      LDEBUG(`No session with name '${sessionName}' found`);
+      LDEBUG(`Wormhole: session '${sessionName}' not found`);
       return;
     }
 
     if (!session.isPasswordValid(password)) {
-      LDEBUG(`Peer provided invalid password for session '${sessionName}'`);
+      LDEBUG(`Wormhole: session '${sessionName}' invalid password provided`);
       return;
     }
 
@@ -384,7 +388,7 @@ export class Wormhole {
   private handleData(data: Buffer, peer: Peer): void {
     const session = this._sessions[peer.sessionName];
     if (!session) {
-      LDEBUG(`No session with name '${peer.sessionName}' found`);
+      LDEBUG(`Wormhole: session '${peer.sessionName}' not found`);
       return;
     }
     session.handleData(data, peer);
@@ -401,7 +405,7 @@ export class Wormhole {
   private handleHostshipRequest(data: Buffer, peer: Peer): void {
     const session = this._sessions[peer.sessionName];
     if (!session) {
-      LDEBUG(`No session with name '${peer.sessionName}' found`);
+      LDEBUG(`Wormhole: session '${peer.sessionName}' not found`);
       return;
     }
 
@@ -419,7 +423,7 @@ export class Wormhole {
   private handleHostshipResignation(_: Buffer, peer: Peer): void {
     const session = this._sessions[peer.sessionName];
     if (!session) {
-      LDEBUG(`No session with name '${peer.sessionName}' found`);
+      LDEBUG(`Wormhole: session '${peer.sessionName}' not found`);
       return;
     }
     session.handleHostshipResignation(peer);

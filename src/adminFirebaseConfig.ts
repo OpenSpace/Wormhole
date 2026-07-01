@@ -31,7 +31,8 @@ function loadServiceAccount(filePath: string, envVar: string): object {
     return JSON.parse(readFileSync(filePath, 'utf-8'));
   } catch (err) {
     throw new Error(
-      `Failed to load Firebase service account from ${envVar}="${filePath}": ${(err as Error).message}`
+      `Failed to load Firebase service account from ${envVar}="${filePath}": ` +
+        `${(err as Error).message}`
     );
   }
 }

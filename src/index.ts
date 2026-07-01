@@ -24,6 +24,7 @@
 
 import { env } from './config/env';
 import { App } from './app';
+import { LERROR } from './utils';
 
 async function main() {
   const application = new App(env.HTTP_PORT, env.WORMHOLE_PORT, env.SERVER_API_PATH);
@@ -33,6 +34,6 @@ async function main() {
 }
 
 main().catch((err: Error) => {
-  console.error('Fatal startup error:', err.message);
+  LERROR('Wormhole: fatal startup error:', err);
   process.exit(1);
 });

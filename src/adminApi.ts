@@ -30,7 +30,7 @@ import { getAuth, UserRecord } from 'firebase-admin/auth';
 import { DataSnapshot, EventType, getDatabase, Reference } from 'firebase-admin/database';
 
 /**
- * Set admin rights for a user in the firebase auth database.
+ * Set admin rights for a user in the Firebase auth database
  *
  * @param uid The user uid to set admin rights for
  * @param secret The secret to verify the request
@@ -51,15 +51,15 @@ export async function setAdminRights(uid: string, secret: string) {
   const auth = getAuth(adminAuthApp);
   try {
     await auth.setCustomUserClaims(uid, { admin: true });
-    LINFO(`Successfully set admin rights for user: ${uid}`);
+    LINFO(`User '${uid}': admin rights granted`);
   } catch (error) {
-    LERROR('Internal error', (error as Error).message, `uid: '${uid}'`);
+    LERROR(`User '${uid}': failed to set admin rights`, error);
     throw error;
   }
 }
 
 /**
- * Authorize a user to the firebase auth database.
+ * Authorize a user to the Firebase auth database
  *
  * @param token The client user id token to authorize
  * @return A promise that resolves with the user firebase uid
@@ -71,7 +71,7 @@ export async function authorizeUser(token: string): Promise<string> {
 }
 
 /**
- * Fetch the display name of a user given their uid.
+ * Fetch the display name of a user given their uid
  *
  * @param token Token to fetch user information
  * @return A promise that resolves with the user information
@@ -82,7 +82,9 @@ export async function getUserByID(token: string): Promise<UserRecord> {
 }
 
 /**
- * @return A promise that resolves with an array of server instances or empty array
+ * Fetch all live sessions from Firebase database
+ *
+ * @return A promise that resolves with an array of sessions
  */
 export async function getSessionsFromDb(): Promise<SessionData[]> {
   const db = getDatabase(adminDbApp);
@@ -91,9 +93,8 @@ export async function getSessionsFromDb(): Promise<SessionData[]> {
     return [];
   }
 
-  const data = snapshot.val();
-  const instances = Object.values<SessionData>(data);
-  return instances;
+  const sessions = Object.values<SessionData>(snapshot.val());
+  return sessions;
 }
 
 /**
@@ -130,14 +131,16 @@ export async function postSession(
   uid: string
 ): Promise<SessionData> {
   const db = getDatabase(adminDbApp);
-  const sessionsRef = db.ref('SessionData');
-  const newPostRef = sessionsRef.push();
-  const postId = newPostRef.key!;
+  const newPostRef = await db.ref('SessionData').push();
+  const postId = newPostRef.key;
+  if (!postId) {
+    throw new Error('Failed to push SessionData to database');
+  }
 
   const metadata = session.getSessionMetadata();
 
   await db.ref(`SessionSecrets/${postId}`).set({ hostPassword: metadata.hostPassword });
-  LDEBUG(`Posted host password to database for session: ${postId}`);
+  LDEBUG(`Session '${postId}': host password posted to database`);
 
   const data: SessionData = {
     active: false,
@@ -154,12 +157,13 @@ export async function postSession(
     owner: uid
   };
   await newPostRef.set(data);
-  LDEBUG('Posted a new instance to database:', data);
+  LDEBUG(`Session '${postId}': new instance posted to databse`, data);
   return data;
 }
 
-/***
- * Fetch the host password for a given session ID and user ID.
+/**
+ * Fetch the host password for a given session ID and user ID. Only sessions that are
+ * owned by the uid can be fetched
  *
  * @param sessionId The ID of the session to fetch the host password for
  * @param uid The user ID of the requester
@@ -169,7 +173,7 @@ export async function getHostPassword(sessionId: string, uid: string): Promise<s
 
   const sessionSnapshot = await db.ref(`SessionData/${sessionId}`).get();
   if (!sessionSnapshot.exists()) {
-    throw new Error(`Session with id "${sessionId}" does not exist`);
+    throw new Error(`Session with id '${sessionId}' does not exist`);
   }
 
   const session = sessionSnapshot.val() as SessionData;
@@ -179,12 +183,19 @@ export async function getHostPassword(sessionId: string, uid: string): Promise<s
 
   const secretSnapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).get();
   if (!secretSnapshot.exists()) {
-    throw new Error(`Host password for session with id "${sessionId}" does not exist`);
+    throw new Error(`Host password for session with id '${sessionId}' does not exist`);
   }
 
   return secretSnapshot.val();
 }
 
+/**
+ * Verify the given password with the stored host password
+ *
+ * @param sessionId The ID of the session to verify host password for
+ * @param password The password submited by the user
+ * @return True if password matches the stored host password, false otherwise
+ */
 export async function verifyHostPassword(
   sessionId: string,
   password: string
@@ -192,14 +203,14 @@ export async function verifyHostPassword(
   const db = getDatabase(adminDbApp);
   const snapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).get();
   if (!snapshot.exists()) {
-    throw new Error(`Host password for session with id "${sessionId}" does not exist`);
+    throw new Error(`Could not find host password for session '${sessionId}'`);
   }
   return snapshot.val() === password;
 }
 
 /**
- * Fetch the host password for a session for server-internal use only.
- * Does not perform any ownership or authentication check.
+ * Fetch the host password for a session for server-internal use only. Does not perform
+ * any ownership or authentication check.
  *
  * @param sessionId The ID of the session
  * @return The host password, or null if not found
@@ -230,9 +241,9 @@ export async function postSessionHistoryData(session: SessionData): Promise<void
       owner: session.owner
     };
     await historyRef.set(history);
-    LDEBUG('Posted history data to database:', history);
+    LDEBUG(`Session '${session.id}': history data posted to database`, history);
   } catch (error) {
-    LERROR('Error posting history data:', error);
+    LERROR(`Session '${session.id}': failed to post history data`, error);
   }
 }
 
@@ -250,7 +261,7 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
     const snapshot = await instanceRef.get();
 
     if (!snapshot.exists()) {
-      const errorMessage = `Error removing instance from database: "${sessionId}" does not exist`;
+      const errorMessage = `Session '${sessionId}': does not exists, cannot remove`;
       LDEBUG(errorMessage);
       throw new Error(errorMessage);
     }
@@ -258,11 +269,11 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
     await postSessionHistoryData(snapshot.val());
     await instanceRef.remove();
     await db.ref(`SessionSecrets/${sessionId}`).remove();
-    LINFO(`Instance with id ${sessionId} was removed from the database`);
+    LINFO(`Session '${sessionId}': removed from database`);
   } catch (error) {
-    const errorMessage = `Error removing instance "${sessionId}" from DB: ${(error as Error).message}`;
-    LERROR(errorMessage);
-    throw new Error(errorMessage);
+    const errorMessage = `Session '${sessionId}': failed to remove from database`;
+    LERROR(errorMessage, error);
+    throw new Error(`${errorMessage}: ${(error as Error).message}`);
   }
 }
 
@@ -282,7 +293,7 @@ export async function updateActiveSessionStatus(
     const snapshot = await instanceRef.get();
 
     if (!snapshot.exists()) {
-      throw new Error(`Could not find instance with id "${sessionId}"`);
+      throw new Error(`Could not find instance with id '${sessionId}'`);
     }
     // if instance is offline we also need to update the inactive timestamp
     if (!online) {
@@ -290,9 +301,9 @@ export async function updateActiveSessionStatus(
     } else {
       await instanceRef.update({ active: online });
     }
-    LDEBUG(`Updated session status for "${sessionId}" to: ${online}`);
+    LDEBUG(`Session '${sessionId}': active status updated to ${online}`);
   } catch (error) {
-    LERROR(`Error updating session status for "${sessionId}:"`, error);
+    LERROR(`Session '${sessionId}': failed to update active status`, error);
   }
 }
 
@@ -312,13 +323,12 @@ export async function updateCurrentActiveUsers(
     const snapshot = await instanceRef.get();
 
     if (!snapshot) {
-      throw new Error(`Could not find instance with id "${sessionId}"`);
+      throw new Error(`Could not find session with id '${sessionId}'`);
     }
-
     await instanceRef.update({ nPeers: nPeers });
-    LDEBUG(`Updated # active users for "${sessionId}" to: ${nPeers}`);
+    LDEBUG(`Session '${sessionId}': active user count updated to ${nPeers}`);
   } catch (error) {
-    LERROR(`Error updating # active users for "${sessionId}:"`, error);
+    LERROR(`Session '${sessionId}': failed to update active userc count`, error);
   }
   await updateStatistics(sessionId, nPeers);
 }
@@ -339,9 +349,9 @@ export async function updateStatistics(sessionId: string, nPeers: number): Promi
     };
 
     await statisticsRef.push(stats);
-    LDEBUG('Pushed new statistics to database:', stats);
+    LDEBUG(`Session '${sessionId}': statistics entry pushed, stats`);
   } catch (error) {
-    LERROR(`Error updating statistics for "${sessionId}:"`, error);
+    LERROR(`Session '${sessionId}':  failed to push statistics entry`, error);
   }
 }
 /**
@@ -356,12 +366,12 @@ export async function updateCurrentHost(sessionId: string, host: string) {
     const instanceRef = db.ref(`SessionData/${sessionId}`);
     const snapshot = await instanceRef.get();
     if (!snapshot.exists()) {
-      throw new Error(`Could not find instance with id "${sessionId}"`);
+      throw new Error(`Could not find instance with id '${sessionId}'`);
     }
     await instanceRef.update({ currentHost: host });
-    LDEBUG(`Updated current host for "${sessionId}" to: ${host}`);
+    LDEBUG(`Session '${sessionId}': current host updated to '${host}'`);
   } catch (error) {
-    LERROR(`Error updating current host for ${sessionId}:`, error);
+    LERROR(`Session '${sessionId}': failed to update current host`, error);
   }
 }
 
@@ -376,12 +386,12 @@ export async function updateUsage(sessionId: string) {
     const instanceRef = db.ref(`SessionData/${sessionId}`);
     const snapshot = await instanceRef.get();
     if (!snapshot.exists()) {
-      throw new Error(`Could not find instance with id "${sessionId}"`);
+      throw new Error(`Could not find instance with id '${sessionId}'`);
     }
     const data = snapshot.val() as SessionData;
     await instanceRef.update({ usage: data.usage + 1 });
-    LDEBUG(`Updated usage for "${sessionId}" to: ${data.usage + 1}`);
+    LDEBUG(`Session '${sessionId}': usage updated to ${data.usage + 1}`);
   } catch (error) {
-    LERROR(`Error updating instance ${sessionId} usage:`, error);
+    LERROR(`Session '${sessionId}': failed to update usage`, error);
   }
 }

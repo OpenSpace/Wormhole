@@ -59,7 +59,8 @@ export class App {
 
   /**
    * @param httpPort The port on which the HTTP server will listen for incoming requests
-   * @param wormholePort The port on which the Wormhole will listen for incoming peer connections
+   * @param wormholePort The port on which the Wormhole will listen for incoming peer
+   * connections
    * @param apiPath The path to the API endpoint for the server, e.g. `/api`
    */
   constructor(httpPort: number, wormholePort: number, apiPath: string) {
@@ -90,7 +91,7 @@ export class App {
     );
 
     this._app.listen(httpPort, () => {
-      LINFO(`Server listening on port ${httpPort}`);
+      LINFO(`HTTP server: listening on port ${httpPort}`);
     });
   }
 
@@ -130,7 +131,7 @@ export class App {
     const instances = await getSessionsFromDb();
 
     if (!instances || !instances.length) {
-      LINFO('No existing sessions found in database');
+      LINFO('Database: no existing sessions found in database');
       return;
     }
     // Add sessions to internal registry
@@ -144,7 +145,10 @@ export class App {
       );
     }
 
-    LINFO(`Loaded ${this._wormhole.activeSessions()} existing sessions from database`);
+    LINFO(
+      `Database: loaded ${this._wormhole.activeSessions()} existing session(s) from ` +
+        `the database`
+    );
   }
 
   /**
@@ -205,7 +209,8 @@ export class App {
   /**
    * Handle the request to create a new session.
    *
-   * @param req Request body must contain password, hostpassword, roomname, profile, and token
+   * @param req Request body must contain password, hostpassword, roomname, profile, and
+   * token
    * @return A promise that resolves with the session metadata or rejects with an error
    */
   private async handleRequestSession(req: Request, res: Response): Promise<void> {
@@ -261,9 +266,13 @@ export class App {
       let sessionData: SessionData;
       try {
         sessionData = await postSession(session, profile, isPrivateRoom, uid);
-      } catch (e) {
+      } catch (error) {
         await this._wormhole.removeSession(session);
-        LERROR('Failed to post session to database, rolling back wormhole session:', e);
+        LERROR(
+          `Session '${roomName}': failed to post session to database, rolling back ` +
+            `Wormhole session`,
+          error
+        );
         res.status(500).json({ error: 'Failed to create session, please try again' });
         return;
       }
@@ -271,17 +280,17 @@ export class App {
       // Server was successfully created, send back information to the client so they
       // can connect to it through OpenSpace
       res.json(sessionData);
-    } catch (e) {
-      LERROR('Error creating server instance:', e);
+    } catch (error) {
+      LERROR(`Session '${roomName}': failed to create server instance`, error);
       // Report an internal server error to the client
-      res.status(500).json({ error: (e as Error).message });
+      res.status(500).json({ error: (error as Error).message });
       return;
     }
   }
 
   /**
-   * Handle the request to retrieve the host password for a session.
-   * Only the session owner may access it.
+   * Handle the request to retrieve the host password for a session. Only the session
+   * owner may access it.
    *
    * @param req Request params must contain the session id as `/:id`
    */
@@ -316,10 +325,11 @@ export class App {
   }
 
   /**
-   * Handle a request to claim host for a session.
-   * Verifies the provided host password; does not check whether a host is currently active.
+   * Handle a request to claim host for a session. Verifies the provided host password,
+   * does not check whether a host is currently active
    *
-   * @param req Request params must contain the session id as `/:id`; body must contain `password`
+   * @param req Request params must contain the session id as `/:id`; body must contain
+   * `password`
    */
   private async handleClaimHost(req: Request, res: Response): Promise<void> {
     const authHeader = req.headers.authorization;
@@ -364,19 +374,19 @@ export class App {
    * Runs every 5 minutes.
    */
   public autoKillInactiveSessions(): void {
-    let instances: SessionData[] = [];
+    let sessions: SessionData[] = [];
 
     function handleData(snapshot: DataSnapshot): any {
       if (snapshot.exists()) {
         const data = snapshot.val();
-        instances = Object.values<SessionData>(data);
+        sessions = Object.values<SessionData>(data);
       } else {
-        instances = [];
+        sessions = [];
       }
     }
 
     function handleError(error: Error) {
-      LERROR('Error fetching instance data: ', error);
+      LERROR(`Database: failed to fetch session data`, error);
     }
 
     subscribeToDatabase('SessionData', 'value', handleData, handleError);
@@ -389,22 +399,22 @@ export class App {
         // Because the removeServerInstanceFromDb will alter the firebase and we are
         // subscribed to the database, as such the `instances` array will update while
         // we would be looping over it, unsure of the behaviour of that.
-        const instancesToRemove: SessionData[] = [];
-        for (const instance of instances) {
+        const sessionsToRemove: SessionData[] = [];
+        for (const session of sessions) {
           // If the server has been running for more than 30 inactive minutes we kill it
-          const inactiveUptime = now - instance.inactiveTimeStamp;
-          if (!instance.active && inactiveUptime > thirtyMinutes) {
-            instancesToRemove.push(instance);
+          const inactiveUptime = now - session.inactiveTimeStamp;
+          if (!session.active && inactiveUptime > thirtyMinutes) {
+            sessionsToRemove.push(session);
           }
         }
 
-        // Remove the instances that have been inactive for too long
-        for (const instance of instancesToRemove) {
+        // Remove the sessions that have been inactive for too long
+        for (const session of sessionsToRemove) {
           try {
-            await this._wormhole.removeSession(instance.id);
-            await removeSessionFromDb(instance.id);
+            await this._wormhole.removeSession(session.id);
+            await removeSessionFromDb(session.id);
           } catch (error) {
-            LERROR('Error removing inactive server:', error);
+            LERROR(`Session '${session.id}': failed to remove inactive session`, error);
           }
         }
       },

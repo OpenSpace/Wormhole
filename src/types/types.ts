@@ -51,19 +51,19 @@ export enum ConnectionStatus {
 
 export type Peer = {
   /**
-   * A unique ID for this peer
+   * A unique ID for this peer.
    */
   id: number;
 
   /**
    * The user-provided name for this peer, or "Anonymous" if no name was specified. The
    * name can have a maximum length of 255 characters and can only consist of ASCII
-   * characters
+   * characters.
    */
   name: string;
 
   /**
-   * The socket on which to contact the Peer and send messages to
+   * The socket on which to contact the Peer and send messages to.
    */
   socket: Socket;
 
@@ -73,7 +73,7 @@ export type Peer = {
   status: ConnectionStatus;
 
   /**
-   * The name of the session this peer is connected to
+   * The name of the session this peer is connected to.
    */
   sessionName: string;
 
@@ -82,5 +82,5 @@ export type Peer = {
    * TCP Gives no guarantee that a single 'data' event aligns with a single
    * application-level message. As such, we must parse the messages.
    */
-  recvBuffer: Buffer;
+  buffer: Buffer;
 };
