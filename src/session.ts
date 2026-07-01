@@ -200,7 +200,7 @@ export class Session {
   public handleData(data: Buffer, peer: Peer): void {
     // Check if this peer is the current host
     if (peer.id === this.currentHostId) {
-      if (peer.id !== ConnectionStatus.Host) {
+      if (peer.status !== ConnectionStatus.Host) {
         LERROR(
           `Session '${this.id}': peer #${peer.id} ('${peer.name}')  matches ` +
             `currentHostId but has status ${peer.status}, expected Host ` +

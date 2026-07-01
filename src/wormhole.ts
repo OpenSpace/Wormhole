@@ -279,17 +279,36 @@ export class Wormhole {
 
     // Dispatch message
     switch (messageType) {
+      // Session name is parsed from the payload during authentication
       case MessageType.Authentication:
-        this.handleAuthentication(messagePayload, peer);
-        break;
+        const status = this.handleAuthentication(messagePayload, peer);
+        if (status.authenticated) {
+          return messageSize;
+        } else {
+          peer.socket.destroy(new Error(status.message));
+          return ProtocolError;
+        }
+    }
+
+    // All other message types require the peer to already be registered in a session
+    const session = this._sessions[peer.sessionName];
+    if (!session) {
+      LERROR(`Wormhole: session '${peer.sessionName}' not found`);
+      peer.socket.destroy(
+        new Error(`Could not find session with name '${peer.sessionName}'`)
+      );
+      return ProtocolError;
+    }
+
+    switch (messageType) {
       case MessageType.Data:
-        this.handleData(messagePayload, peer);
+        session.handleData(messagePayload, peer);
         break;
       case MessageType.HostshipRequest:
-        this.handleHostshipRequest(messagePayload, peer);
+        session.handleHostshipRequest(messagePayload, peer);
         break;
       case MessageType.HostshipResignation:
-        this.handleHostshipResignation(messagePayload, peer);
+        session.handleHostshipResignation(peer);
         break;
     }
 
@@ -322,8 +341,13 @@ export class Wormhole {
    *
    * @param data The payload of the authentication message
    * @param peer The Peer from which this message arrived
+   * @return An object containing the authentication status (true if authentication
+   * succeedes, false otherwise) and an optional message
    */
-  private handleAuthentication(data: Buffer, peer: Peer): void {
+  private handleAuthentication(
+    data: Buffer,
+    peer: Peer
+  ): { authenticated: boolean; message?: string } {
     LDEBUG(`Wormhole: handling authentication attempt from ${peer.socket.remoteAddress}`);
 
     const dv = new DataView(
@@ -366,66 +390,19 @@ export class Wormhole {
     const session = this._sessions[sessionName];
     if (!session) {
       LDEBUG(`Wormhole: session '${sessionName}' not found`);
-      return;
+      return { authenticated: false, message: `Session '${sessionName}': not found` };
     }
 
     if (!session.isPasswordValid(password)) {
       LDEBUG(`Wormhole: session '${sessionName}' invalid password provided`);
-      return;
+      return {
+        authenticated: false,
+        message: `Invalid password`
+      };
     }
 
     peer.id = this._peerIdCounter++;
     session.registerPeer(peer, hostPassword);
-  }
-
-  /**
-   * Handle incoming data from the provided peer, we only forward the data along to
-   * other peers if it comes from the host.
-   *
-   * @param data The payload of the data message
-   * @param peer The Peer from which this message is coming
-   */
-  private handleData(data: Buffer, peer: Peer): void {
-    const session = this._sessions[peer.sessionName];
-    if (!session) {
-      LDEBUG(`Wormhole: session '${peer.sessionName}' not found`);
-      return;
-    }
-    session.handleData(data, peer);
-  }
-
-  /**
-   * Handles an incoming hostship request message by the peer. If the message contains
-   * the correct host password, the peer is promoted to hostship and the previous host
-   * is demoted (if there was one).
-   *
-   * @param data The payload of the hostship request message
-   * @param peer The Peer from which this message arrived
-   */
-  private handleHostshipRequest(data: Buffer, peer: Peer): void {
-    const session = this._sessions[peer.sessionName];
-    if (!session) {
-      LDEBUG(`Wormhole: session '${peer.sessionName}' not found`);
-      return;
-    }
-
-    session.handleHostshipRequest(data, peer);
-  }
-
-  /**
-   * Handles an incoming hostship resignation by the peer. If the peer is the current
-   * host, we remove the hostship and inform all connected peers that they lost their
-   * host.
-   *
-   * @param _ Unused parameter
-   * @param peer The Peer from which this message arrived
-   */
-  private handleHostshipResignation(_: Buffer, peer: Peer): void {
-    const session = this._sessions[peer.sessionName];
-    if (!session) {
-      LDEBUG(`Wormhole: session '${peer.sessionName}' not found`);
-      return;
-    }
-    session.handleHostshipResignation(peer);
+    return { authenticated: true };
   }
 }
