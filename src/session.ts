@@ -136,9 +136,10 @@ export class Session {
         resolve();
       }
 
+      const totalPeers = this.peers.length;
       const checkAllDisconnected = () => {
         disconnectCount += 1;
-        if (disconnectCount === this.peers.length) {
+        if (disconnectCount === totalPeers) {
           resolve();
         }
       };
@@ -228,9 +229,7 @@ export class Session {
   public handleHostshipRequest(data: Buffer, peer: Peer): void {
     LDEBUG(`Session '${this.id}': peer #${peer.id} ('${peer.name}') requested hostship`);
 
-    const dv = new DataView(
-      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-    );
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
     let offset = 0;
 
     const passwordLength = dv.getUint16(offset, true);
@@ -280,7 +279,7 @@ export class Session {
    * password means the room is public and any password is accepted.
    *
    * @param password The room password provided by the peer
-   * s True if the password is correct, false otherwise
+   * @return True if the password is correct, false otherwise
    */
   public isPasswordValid(password: string): boolean {
     return this.password === '' || password === this.password;
@@ -368,7 +367,7 @@ export class Session {
   /**
    * Write the `message` to the provided `peer`.
    *
-   * @param peer The peer that will recieve the message
+   * @param peer The peer that will receive the message
    * @param message The message payload data that is sent
    */
   private writeMessage(peer: Peer, message: Buffer): void {
@@ -380,7 +379,7 @@ export class Session {
    * Send a message to the provided peer of the provided `messageType` with the specified
    * `payload` data.
    *
-   * @param peer The peer that will recieve the message
+   * @param peer The peer that will receive the message
    * @param messageType The type of message that will be sent
    * @param payload The payload of the data that is sent
    */
@@ -391,7 +390,7 @@ export class Session {
   /**
    * Send a connection status message to the provided peer.
    *
-   * @param peer The peer that will recieve the connection status message
+   * @param peer The peer that will receive the connection status message
    */
   private sendConnectionStatus(peer: Peer): void {
     const host = this.currentHost();
@@ -464,7 +463,7 @@ export class Session {
   private assignHost(newHost: Peer): void {
     // If we currently have a host, we need to demote them
     if (this.currentHostId !== null) {
-      let oldHost = this.currentHost()!; // Host id cannot be null here
+      const oldHost = this.currentHost()!; // Host id cannot be null here
       oldHost.status = ConnectionStatus.ClientWithHost;
     }
 
@@ -498,7 +497,7 @@ export class Session {
     this.currentHostId = null;
 
     // Inform all peers that we no longer have a host, this includes the recently
-    // removed host aswell
+    // removed host as well
     this.peers.forEach((peer: Peer) => {
       peer.status = ConnectionStatus.ClientWithoutHost;
       this.sendConnectionStatus(peer);

@@ -38,13 +38,13 @@ import { DataSnapshot, EventType, getDatabase, Reference } from 'firebase-admin/
 export async function setAdminRights(uid: string, secret: string) {
   // Verify the provided secret against the database secret
   const db = getDatabase(adminDbApp);
-  const dbSecret = await db.ref('Admin/secret').get();
+  const secretSnapshot = await db.ref('Admin/secret').once('value');
 
-  if (!dbSecret.exists()) {
+  if (!secretSnapshot.exists()) {
     throw new Error('Could not find admin secret in database');
   }
 
-  if (secret !== dbSecret.val()) {
+  if (secret !== secretSnapshot.val()) {
     throw new Error('Invalid secret provided');
   }
 
@@ -59,7 +59,7 @@ export async function setAdminRights(uid: string, secret: string) {
 }
 
 /**
- * Authorize a user to the Firebase auth database
+ * Authorize a user to the Firebase auth database.
  *
  * @param token The client user id token to authorize
  * @return A promise that resolves with the user firebase uid
@@ -71,14 +71,30 @@ export async function authorizeUser(token: string): Promise<string> {
 }
 
 /**
+ * Authorize a user and verify they have admin rights.
+ *
+ * @param token The client user id token to authorize
+ * @return A promise that resolves with the user firebase uid, or rejects if the user
+ * is not authenticated or does not have admin rights
+ */
+export async function authorizeAdmin(token: string): Promise<string> {
+  const auth = getAuth(adminAuthApp);
+  const decodedToken = await auth.verifyIdToken(token);
+  if (!decodedToken['admin']) {
+    throw new Error('Insufficient permissions: admin rights required');
+  }
+  return decodedToken.uid;
+}
+
+/**
  * Fetch the display name of a user given their uid
  *
- * @param token Token to fetch user information
+ * @param uid The uid of the user to fetch
  * @return A promise that resolves with the user information
  */
-export async function getUserByID(token: string): Promise<UserRecord> {
+export async function getUserByID(uid: string): Promise<UserRecord> {
   const auth = getAuth(adminAuthApp);
-  return await auth.getUser(token);
+  return await auth.getUser(uid);
 }
 
 /**
@@ -105,7 +121,7 @@ export async function getSessionsFromDb(): Promise<SessionData[]> {
  * @param callback The callback function when an event is triggered
  * @param onError The callback function when an error occurs
  */
-export async function subscribeToDatabase(
+export function subscribeToDatabase(
   path: string | Reference,
   eventType: EventType,
   callback: (snapshot: DataSnapshot, b?: string | null | undefined) => any,
@@ -157,7 +173,7 @@ export async function postSession(
     owner: uid
   };
   await newPostRef.set(data);
-  LDEBUG(`Session '${postId}': new instance posted to databse`, data);
+  LDEBUG(`Session '${postId}': new instance posted to database`, data);
   return data;
 }
 
@@ -171,7 +187,7 @@ export async function postSession(
 export async function getHostPassword(sessionId: string, uid: string): Promise<string> {
   const db = getDatabase(adminDbApp);
 
-  const sessionSnapshot = await db.ref(`SessionData/${sessionId}`).get();
+  const sessionSnapshot = await db.ref(`SessionData/${sessionId}`).once('value');
   if (!sessionSnapshot.exists()) {
     throw new Error(`Session with id '${sessionId}' does not exist`);
   }
@@ -181,7 +197,9 @@ export async function getHostPassword(sessionId: string, uid: string): Promise<s
     throw new Error('Only the session owner can retrieve the host password');
   }
 
-  const secretSnapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).get();
+  const secretSnapshot = await db
+    .ref(`SessionSecrets/${sessionId}/hostPassword`)
+    .once('value');
   if (!secretSnapshot.exists()) {
     throw new Error(`Host password for session with id '${sessionId}' does not exist`);
   }
@@ -201,7 +219,7 @@ export async function verifyHostPassword(
   password: string
 ): Promise<boolean> {
   const db = getDatabase(adminDbApp);
-  const snapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).get();
+  const snapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).once('value');
   if (!snapshot.exists()) {
     throw new Error(`Could not find host password for session '${sessionId}'`);
   }
@@ -217,7 +235,7 @@ export async function verifyHostPassword(
  */
 export async function getHostPasswordInternal(sessionId: string): Promise<string | null> {
   const db = getDatabase(adminDbApp);
-  const snapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).get();
+  const snapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).once('value');
   return snapshot.exists() ? snapshot.val() : null;
 }
 
@@ -258,7 +276,7 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
     const db = getDatabase(adminDbApp);
     const instanceRef = db.ref(`SessionData/${sessionId}`);
 
-    const snapshot = await instanceRef.get();
+    const snapshot = await instanceRef.once('value');
 
     if (!snapshot.exists()) {
       const errorMessage = `Session '${sessionId}': does not exists, cannot remove`;
@@ -290,7 +308,7 @@ export async function updateActiveSessionStatus(
   try {
     const db = getDatabase(adminDbApp);
     const instanceRef = db.ref(`SessionData/${sessionId}`);
-    const snapshot = await instanceRef.get();
+    const snapshot = await instanceRef.once('value');
 
     if (!snapshot.exists()) {
       throw new Error(`Could not find instance with id '${sessionId}'`);
@@ -320,17 +338,17 @@ export async function updateCurrentActiveUsers(
   try {
     const db = getDatabase(adminDbApp);
     const instanceRef = db.ref(`SessionData/${sessionId}`);
-    const snapshot = await instanceRef.get();
+    const snapshot = await instanceRef.once('value');
 
-    if (!snapshot) {
+    if (!snapshot.exists()) {
       throw new Error(`Could not find session with id '${sessionId}'`);
     }
     await instanceRef.update({ nPeers: nPeers });
     LDEBUG(`Session '${sessionId}': active user count updated to ${nPeers}`);
+    await updateStatistics(sessionId, nPeers);
   } catch (error) {
-    LERROR(`Session '${sessionId}': failed to update active userc count`, error);
+    LERROR(`Session '${sessionId}': failed to update active user count`, error);
   }
-  await updateStatistics(sessionId, nPeers);
 }
 
 /**
@@ -349,9 +367,9 @@ export async function updateStatistics(sessionId: string, nPeers: number): Promi
     };
 
     await statisticsRef.push(stats);
-    LDEBUG(`Session '${sessionId}': statistics entry pushed, stats`);
+    LDEBUG(`Session '${sessionId}': statistics entry pushed`, stats);
   } catch (error) {
-    LERROR(`Session '${sessionId}':  failed to push statistics entry`, error);
+    LERROR(`Session '${sessionId}': failed to push statistics entry`, error);
   }
 }
 /**
@@ -364,7 +382,7 @@ export async function updateCurrentHost(sessionId: string, host: string) {
   try {
     const db = getDatabase(adminDbApp);
     const instanceRef = db.ref(`SessionData/${sessionId}`);
-    const snapshot = await instanceRef.get();
+    const snapshot = await instanceRef.once('value');
     if (!snapshot.exists()) {
       throw new Error(`Could not find instance with id '${sessionId}'`);
     }
@@ -384,7 +402,7 @@ export async function updateUsage(sessionId: string) {
   try {
     const db = getDatabase(adminDbApp);
     const instanceRef = db.ref(`SessionData/${sessionId}`);
-    const snapshot = await instanceRef.get();
+    const snapshot = await instanceRef.once('value');
     if (!snapshot.exists()) {
       throw new Error(`Could not find instance with id '${sessionId}'`);
     }

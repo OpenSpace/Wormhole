@@ -30,7 +30,7 @@ const FgGreen = '\x1b[32m';
 const FgWhite = '\x1b[37m';
 
 /**
- * Logs a debug info message if `ChattyDebug` flage is set to true.
+ * Logs a debug info message if `DEBUG` flag is set to true.
  *
  * @param message The message to log
  * @param params Any additional parameters to log

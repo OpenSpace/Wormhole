@@ -215,13 +215,13 @@ export class Wormhole {
   /**
    * Attempts to parse and dispatch a single complete message from the front of
    * `peer.buffer`. If the buffer does not yet hold a full header, or a full header
-   * plus its playload, no action is taken. If the header is malformed, the stream is
+   * plus its payload, no action is taken. If the header is malformed, the stream is
    * considered unrecoverable.
    *
    * @param peer The Peer whose buffer should be parsed
-   * @return The nubmer of bytes (header + payload) consumed from the front of the
+   * @return The number of bytes (header + payload) consumed from the front of the
    * buffer. Return `NeedMoreData` if no complete message could be extracted, which
-   * happens becasue more data is still needed or `ProtocolError` if the connection was
+   * happens because more data is still needed or `ProtocolError` if the connection was
    * just terminated due to a protocol error
    */
   private processMessage(peer: Peer): number {
@@ -350,9 +350,7 @@ export class Wormhole {
   ): { authenticated: boolean; message?: string } {
     LDEBUG(`Wormhole: handling authentication attempt from ${peer.socket.remoteAddress}`);
 
-    const dv = new DataView(
-      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-    );
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
     let offset = 0;
     const passwordLength = dv.getUint16(offset, true);

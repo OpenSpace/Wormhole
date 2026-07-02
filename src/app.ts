@@ -23,6 +23,7 @@
  ****************************************************************************************/
 
 import {
+  authorizeAdmin,
   authorizeUser,
   getSessionsFromDb,
   getUserByID,
@@ -76,8 +77,8 @@ export class App {
       this.handleRequestSetAdminRights.bind(this)
     );
     this._app.get(
-      `${apiPath}/fetch-user-name/:token`,
-      this.handleRequestgetUserNameByID.bind(this)
+      `${apiPath}/fetch-user-name/:uid`,
+      this.handleRequestGetUserNameByID.bind(this)
     );
     this._app.post(`${apiPath}/request-session`, this.handleRequestSession.bind(this));
     this._app.get(
@@ -105,19 +106,19 @@ export class App {
   /**
    * Fetch the display name of a user given their uid.
    *
-   * @param req Request object containing the user token
+   * @param req Request params must contain the user uid as `/:uid`
    * @param res Response object containing user name
    */
-  private async handleRequestgetUserNameByID(req: Request, res: Response): Promise<void> {
-    const token = req.params.token;
+  private async handleRequestGetUserNameByID(req: Request, res: Response): Promise<void> {
+    const uid = req.params.uid;
 
-    if (!token || typeof token !== 'string') {
-      res.status(400).json({ error: 'Invalid token' });
+    if (!uid || typeof uid !== 'string') {
+      res.status(400).json({ error: 'Invalid uid' });
       return;
     }
 
     try {
-      const user = await getUserByID(token);
+      const user = await getUserByID(uid);
       res.json({ name: user.displayName });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -174,11 +175,19 @@ export class App {
   }
 
   /**
-   * Handle the request to remove a session.
+   * Handle the request to remove a session. Only users with admin rights may remove a
+   * session.
    *
-   * @param req Request object must contain the session id as a params `/:id`
+   * @param req Request params must contain the session id as `/:id`; must include a
+   * valid admin Bearer token in the authorization header
    */
   private async handleRemoveSession(req: Request, res: Response): Promise<void> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid authorization header' });
+      return;
+    }
+    const token = authHeader.slice(7);
     const instanceID = req.params.id;
 
     if (!instanceID || typeof instanceID !== 'string') {
@@ -187,10 +196,16 @@ export class App {
     }
 
     try {
+      await authorizeAdmin(token);
       const msg = await this.removeSession(instanceID);
       res.status(200).json({ message: msg });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      const msg = (e as Error).message;
+      if (msg.includes('Insufficient permissions')) {
+        res.status(403).json({ error: msg });
+      } else {
+        res.status(500).json({ error: msg });
+      }
     }
   }
 
@@ -211,7 +226,7 @@ export class App {
    *
    * @param req Request body must contain password, hostpassword, roomname, profile, and
    * token
-   * @return A promise that resolves with the session metadata or rejects with an error
+   * @param res Response object that will receive the session metadata on success
    */
   private async handleRequestSession(req: Request, res: Response): Promise<void> {
     const authHeader = req.headers.authorization;

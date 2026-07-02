@@ -12,5 +12,9 @@ declare namespace NodeJS {
     WORMHOLE_PORT?: string;
     /** Base path prefix for all REST API routes */
     SERVER_API_PATH: string;
+    /** Allowed CORS origin for the HTTP server */
+    CORS_ORIGIN: string;
+    /** Enable verbose debug logging (default: false) */
+    DEBUG?: string;
   }
 }
