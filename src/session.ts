@@ -130,32 +130,41 @@ export class Session {
    */
   public stop(): Promise<void> {
     return new Promise((resolve) => {
-      let disconnectCount = 0;
-
       if (this.peers.length === 0) {
         resolve();
+        return;
       }
 
-      const totalPeers = this.peers.length;
-      const checkAllDisconnected = () => {
-        disconnectCount += 1;
-        if (disconnectCount === totalPeers) {
+      // Create a copy of the peers since `this.peers` can be mutaded concurrently by the
+      // Worhmhole socket 'error' callback while we're still iterating here.
+      const peersToDisconnect = [...this.peers];
+      const settled = new Set<number>();
+
+      const checkAllDisconnected = (peer: Peer) => {
+        // A peer's disconnect may be reported twice, once here and via the socket-level
+        // 'error' handler set up in the Wormhole
+        if (settled.has(peer.id)) {
+          return;
+        }
+
+        settled.add(peer.id);
+        if (settled.size === peersToDisconnect.length) {
           resolve();
         }
       };
 
-      for (const peer of this.peers) {
+      for (const peer of peersToDisconnect) {
         // Handle if socket does not end properly
-        peer.socket.on('error', (err) => {
+        peer.socket.once('error', (err) => {
           LDEBUG(
             `Session ${this.id}: error disconnecting peer #${peer.id} ('${peer.name}')`,
             err
           );
-          checkAllDisconnected();
+          checkAllDisconnected(peer);
         });
 
         peer.socket.end(() => {
-          checkAllDisconnected();
+          checkAllDisconnected(peer);
         });
       }
     });
@@ -503,6 +512,6 @@ export class Session {
       this.sendConnectionStatus(peer);
     });
 
-    updateCurrentHost(this.id!, 'null');
+    updateCurrentHost(this.id!, '');
   }
 }

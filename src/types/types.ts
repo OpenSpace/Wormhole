@@ -6,13 +6,13 @@ export type SessionData = {
   inactiveTimeStamp: number;
   created: number;
   usage: number;
-  password: string | null;
+  password: string;
   nPeers: number;
   currentHost: string;
   roomName: string;
   profile: string;
   isPrivate: boolean;
-  owner: string | null;
+  owner: string;
 };
 
 export type SessionHistoryData = {
@@ -22,7 +22,7 @@ export type SessionHistoryData = {
   uptime: number;
   usage: number;
   roomName: string;
-  owner: string | null;
+  owner: string;
 };
 
 export type StatisticData = {

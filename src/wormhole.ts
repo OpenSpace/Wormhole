@@ -79,8 +79,7 @@ export class Wormhole {
 
       // The peer is only added to the list if the authentication is succesful. Note: the
       // `Id` is assigned once authentication is attempted, see `handleAuthentication`
-      // eslint-disable-next-line prefer-const
-      let peer: Peer = {
+      const peer: Peer = {
         id: -1,
         name: '',
         socket: socket,
