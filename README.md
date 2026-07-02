@@ -16,7 +16,7 @@ For the frontend, see the [astrocast.openspaceproject.com](https://github.com/Op
    ```sh
    npm install
    ```
-1. Copy `.env_sample` to `.env` and fill in the values (see [Environment Variables](#environment-variables) below)
+1. Copy `.env-sample` to `.env` and fill in the values (see [Environment Variables](#environment-variables) below)
 
 ### Running
 

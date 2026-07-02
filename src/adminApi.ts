@@ -282,7 +282,7 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
     const snapshot = await instanceRef.once('value');
 
     if (!snapshot.exists()) {
-      const errorMessage = `Session '${sessionId}': does not exists, cannot remove`;
+      const errorMessage = `Session '${sessionId}': does not exist, cannot remove`;
       LDEBUG(errorMessage);
       throw new Error(errorMessage);
     }

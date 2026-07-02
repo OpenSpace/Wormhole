@@ -8,8 +8,8 @@
     "build": "tsc",
     "preview": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "lint": "npx prettier . --check & eslint .",
-    "lint-fix": "npx prettier . --write & eslint . --fix"
+    "lint": "npx prettier . --check && eslint .",
+    "lint-fix": "npx prettier . --write && eslint . --fix"
   },
   "dependencies": {
     "cors": "^2.8.6",

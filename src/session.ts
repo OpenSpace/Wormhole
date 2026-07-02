@@ -135,8 +135,8 @@ export class Session {
         return;
       }
 
-      // Create a copy of the peers since `this.peers` can be mutaded concurrently by the
-      // Worhmhole socket 'error' callback while we're still iterating here.
+      // Create a copy of the peers since `this.peers` can be mutated concurrently by the
+      // Wormhole socket 'error' callback while we're still iterating here.
       const peersToDisconnect = [...this.peers];
       const settled = new Set<number>();
 

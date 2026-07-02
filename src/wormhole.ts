@@ -78,7 +78,7 @@ export class Wormhole {
       LDEBUG(`Wormhole: new connection from ${socket.remoteAddress}`);
       socket.setNoDelay(true);
 
-      // The peer is only added to the list if the authentication is succesful. Note: the
+      // The peer is only added to the list if the authentication is successful. Note: the
       // `Id` is assigned once authentication is attempted, see `handleAuthentication`
       const peer: Peer = {
         id: -1,

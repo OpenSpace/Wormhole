@@ -29,7 +29,6 @@ export default tseslint.config(
       'no-duplicate-imports': 'error', // Imports should be on one line
       'no-console': 'warn',
       'prefer-destructuring': ['error', { object: true, array: true }],
-      'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
       'simple-import-sort/imports': [
         'error',
