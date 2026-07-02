@@ -1,39 +1,55 @@
-# Wormhole - Parallel Connection
-# Overview
-The web app enhances the usability of Parallel Connection in OpenSpace by enabling users to view available rooms (sessions), create and share rooms with others, and join sessions directly from the website if OpenSpace is running locally.
-
-# Functionality
-### Session Information
-View detailed information about each session, including the number of participants, the creator of the room, the current host, and other relevant information.
-
-### Join Existing Rooms
-Easily connect to an existing room session via the website if you're connected to OpenSpace.
-
-### Share Room
-Share room links with others for automatic joining and seamless streaming.
-
-### Create New Rooms
-All sessions occupied? Log in with your Google, Facebook, Twitter, or GitHub account and create a new session.
-
 # Wormhole
-To start the Wormhole server locally, you will need [Node.JS and NPM](https://nodejs.org) installed on your system. With that taken care of
 
-1. Clone this repository and enter the `Wormhole` folder
-1. Install all potentially required packages by calling `npm install`
-1. Make a copy of `.env_sample`, rename it to `.env` and fill in the information. The projects API keys can be found on [Firebase](https://console.firebase.google.com/u/0/), download the projects admin sdk files as well.
-  - API
-    1. In the Firebase console, open `Project Overview` > `1 app` > `Cog wheel`
-    1. Scroll down to see the values
-  - Admin SDK
-    1. In the Firebase console, open `Settings` > `Service Accounts`.
-    1. Click `Generate New Private Key`, then confirm by clicking `Generate Key`.
-    1. Securely store the JSON file containing the key.
+The Wormhole server is the backend component of [Astrocast](https://github.com/OpenSpace/astrocast.openspaceproject.com). It is responsible for relaying data between [OpenSpace](https://www.openspaceproject.com) instances in a session, and exposing an HTTP API that the Astrocast frontend uses to manage those sessions.
 
-1. Start the frontend and backend server by executing `npm run dev`. This will set up all the neccesary processes that will transpile the necessary files, enable hot reload, and serve a local express app.
-1. To ready the app for deployment execute `npm run build`. This will build both the frontend and backend into `.local/express` and `.local/vite`.
-1. Optionally you can run only the frontend by executing `npm run vite:dev` or only the backend by executing `npm run api:dev`.
+For the frontend, see the [astrocast.openspaceproject.com](https://github.com/OpenSpace/astrocast.openspaceproject.com) repository.
 
-# Message Structures (version 7)
+## Getting Started
+
+### Prerequisites
+  - [Node.js and npm](https://nodejs.org)
+
+### Installation
+
+1. Clone this repository
+1. Install dependencies:
+   ```sh
+   npm install
+   ```
+1. Copy `.env_sample` to `.env` and fill in the values (see [Environment Variables](#environment-variables) below)
+
+### Running
+
+| Command | Description |
+| --------- | ------------- |
+| `npm run dev` | Start the server with hot reload (development) |
+| `npm run build` | Compile TypeScript to `dist/` |
+| `npm run preview` | Run the compiled output from `dist/` |
+| `npm run lint` | Check formatting (Prettier) and linting (ESLint) |
+| `npm run lint-fix` | Auto-fix formatting and lint issues |
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+| ---------- | ---------- | --------- | ------------- |
+| `HTTP_PORT` | | `25000` | Port the HTTP API listens on |
+| `WORMHOLE_PORT` | | `25001` | Port the TCP Wormhole server listens on |
+| `SERVER_API_PATH` | ✓ | | Base path for all API routes, e.g. `/api` |
+| `CORS_ORIGIN` | ✓ | | The origin of the frontend, e.g. `https://astrocast.openspaceproject.com` |
+| `DEBUG` | | `false` | Set to `true` to enable verbose debug logging |
+| `ADMIN_AUTH_SDK_FILEPATH` | ✓ | | Path to the Firebase Admin SDK JSON file used for authentication |
+| `ADMIN_DB_SDK_FILEPATH` | ✓ | | Path to the Firebase Admin SDK JSON file used for the database |
+| `DATABASE_FIREBASE_DATABASE_URL` | ✓ | | URL of the Firebase Realtime Database |
+
+### Obtaining Firebase credentials
+
+1. Open the [Firebase console](https://console.firebase.google.com)
+1. Go to **Project Settings** > **Service Accounts**
+1. Click **Generate New Private Key** and confirm — this downloads a JSON file
+1. Set `ADMIN_AUTH_SDK_FILEPATH` and `ADMIN_DB_SDK_FILEPATH` to the path(s) of the downloaded file(s)
+1. The `DATABASE_FIREBASE_DATABASE_URL` can be found under **Project Settings** > **General**
+
+## Message Structures (version 7)
 This section describes the different message types that are being sent between OpenSpace and the Wormhole application. A message consists of a header and a type-appropriate payload.
 
 ```cpp
@@ -45,7 +61,6 @@ struct {
   byte[messageSize] payload; // The payload of the message according to the messageType
 }
 ```
-
 
 ## Authentication (Type = 0)
 This message is sent from OpenSpace to the Wormhole server to authenticate a new peer to a running session. It consists of a password which has to be provided, and an optional host password, and the optional name. An optional parameter is represented by a length of 0.
