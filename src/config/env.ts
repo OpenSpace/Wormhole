@@ -1,5 +1,8 @@
-import 'dotenv/config';
 import { z } from 'zod';
+
+import 'dotenv/config';
+
+import { LERROR } from '../utils';
 
 const envSchema = z.object({
   HTTP_PORT: z.coerce.number().default(25000),
@@ -15,8 +18,7 @@ const envSchema = z.object({
 const result = envSchema.safeParse(process.env);
 
 if (!result.success) {
-  console.error('Invalid environment configuration:');
-  console.error(result.error);
+  LERROR('Invalid environment configuration:', result.error);
   process.exit(1);
 }
 

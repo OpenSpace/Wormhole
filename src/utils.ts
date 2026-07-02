@@ -38,6 +38,7 @@ const FgWhite = '\x1b[37m';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function LDEBUG(message: string, ...params: any[]): void {
   if (env.DEBUG) {
+    // eslint-disable-next-line no-console
     console.log(FgGreen, message, FgWhite, ...params);
   }
 }
@@ -49,6 +50,7 @@ export function LDEBUG(message: string, ...params: any[]): void {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function LERROR(message: string, ...params: any[]): void {
+  // eslint-disable-next-line no-console
   console.error(FgRed, message, FgWhite, ...params);
 }
 
@@ -60,5 +62,6 @@ export function LERROR(message: string, ...params: any[]): void {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function LINFO(message: string, ...params: any[]): void {
+  // eslint-disable-next-line no-console
   console.log(FgWhite, message, ...params);
 }

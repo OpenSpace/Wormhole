@@ -22,12 +22,13 @@
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                         *
  ****************************************************************************************/
 
-import { adminAuthApp, adminDbApp } from './adminFirebaseConfig';
-import { Session } from './session';
-import { SessionHistoryData, SessionData, StatisticData } from './types/types';
-import { LDEBUG, LERROR, LINFO } from './utils';
 import { getAuth, UserRecord } from 'firebase-admin/auth';
 import { DataSnapshot, EventType, getDatabase, Reference } from 'firebase-admin/database';
+
+import { SessionData, SessionHistoryData, StatisticData } from './types/types';
+import { adminAuthApp, adminDbApp } from './adminFirebaseConfig';
+import { Session } from './session';
+import { LDEBUG, LERROR, LINFO } from './utils';
 
 /**
  * Set admin rights for a user in the Firebase auth database
@@ -124,7 +125,9 @@ export async function getSessionsFromDb(): Promise<SessionData[]> {
 export function subscribeToDatabase(
   path: string | Reference,
   eventType: EventType,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   callback: (snapshot: DataSnapshot, b?: string | null | undefined) => any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onError: (error: Error) => any
 ) {
   const db = getDatabase(adminDbApp);
@@ -291,7 +294,7 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
   } catch (error) {
     const errorMessage = `Session '${sessionId}': failed to remove from database`;
     LERROR(errorMessage, error);
-    throw new Error(`${errorMessage}: ${(error as Error).message}`);
+    throw new Error(`${errorMessage}: ${(error as Error).message}`, { cause: error });
   }
 }
 

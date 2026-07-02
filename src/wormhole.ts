@@ -22,15 +22,16 @@
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                         *
  ****************************************************************************************/
 
-import { Session } from './session';
+import * as net from 'net';
+
 import {
   ConnectionStatus,
   CurrentProtocolVersion,
   MessageType,
   Peer
 } from './types/types';
+import { Session } from './session';
 import { LDEBUG, LERROR, LINFO } from './utils';
-import * as net from 'net';
 
 const NeedMoreData = 0;
 const ProtocolError = -1;
@@ -230,7 +231,7 @@ export class Wormhole {
       Uint8Array.BYTES_PER_ELEMENT + // Message type identifier
       Uint32Array.BYTES_PER_ELEMENT; // Payload size in bytes
 
-    const buffer = peer.buffer;
+    const { buffer } = peer;
 
     if (buffer.length < HeaderSize) {
       return NeedMoreData; // Header hasn't fully arrived yet
@@ -279,7 +280,7 @@ export class Wormhole {
     // Dispatch message
     switch (messageType) {
       // Session name is parsed from the payload during authentication
-      case MessageType.Authentication:
+      case MessageType.Authentication: {
         const status = this.handleAuthentication(messagePayload, peer);
         if (status.authenticated) {
           return messageSize;
@@ -287,6 +288,8 @@ export class Wormhole {
           peer.socket.destroy(new Error(status.message));
           return ProtocolError;
         }
+      }
+      default:
     }
 
     // All other message types require the peer to already be registered in a session
@@ -309,6 +312,8 @@ export class Wormhole {
       case MessageType.HostshipResignation:
         session.handleHostshipResignation(peer);
         break;
+      default:
+        throw new Error(`Unhandled messageType (${messageType})`);
     }
 
     return messageSize;

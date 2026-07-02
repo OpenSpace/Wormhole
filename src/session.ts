@@ -23,17 +23,17 @@
  ****************************************************************************************/
 
 import {
+  ConnectionStatus,
+  CurrentProtocolVersion,
+  MessageType,
+  Peer
+} from './types/types';
+import {
   updateActiveSessionStatus,
   updateCurrentActiveUsers,
   updateCurrentHost,
   updateUsage
 } from './adminApi';
-import {
-  Peer,
-  ConnectionStatus,
-  MessageType,
-  CurrentProtocolVersion
-} from './types/types';
 import { LDEBUG, LERROR } from './utils';
 
 /**

@@ -22,26 +22,27 @@
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                         *
  ****************************************************************************************/
 
+import cors from 'cors';
+import express, { Request, Response } from 'express';
+import { DataSnapshot } from 'firebase-admin/database';
+
+import { env } from './config/env';
+import { SessionData } from './types/types';
 import {
   authorizeAdmin,
   authorizeUser,
-  getSessionsFromDb,
-  getUserByID,
   getHostPassword,
   getHostPasswordInternal,
+  getSessionsFromDb,
+  getUserByID,
   postSession,
   removeSessionFromDb,
   setAdminRights,
   subscribeToDatabase,
   verifyHostPassword
 } from './adminApi';
-import { Wormhole } from './wormhole';
 import { LERROR, LINFO } from './utils';
-import cors from 'cors';
-import express, { Response, Request } from 'express';
-import { DataSnapshot } from 'firebase-admin/database';
-import { env } from './config/env';
-import { SessionData } from './types/types';
+import { Wormhole } from './wormhole';
 
 /**
  * Top-level application coordinator. Owns the HTTP REST API and the Wormhole TCP server.
@@ -110,7 +111,7 @@ export class App {
    * @param res Response object containing user name
    */
   private async handleRequestGetUserNameByID(req: Request, res: Response): Promise<void> {
-    const uid = req.params.uid;
+    const { uid } = req.params;
 
     if (!uid || typeof uid !== 'string') {
       res.status(400).json({ error: 'Invalid uid' });
@@ -158,8 +159,8 @@ export class App {
    * @param req Request object must contain the user id token and secret in the body
    */
   private async handleRequestSetAdminRights(req: Request, res: Response): Promise<void> {
-    const uid = req.body.uid;
-    const secret = req.body.secret;
+    const { uid } = req.body;
+    const { secret } = req.body;
 
     if (!uid || !secret || typeof uid !== 'string' || typeof secret !== 'string') {
       res.status(400).json({ error: 'Missing uid or secret' });
@@ -236,10 +237,10 @@ export class App {
     }
     const token = authHeader.slice(7);
 
-    const password = req.body.password;
-    const hostPassword = req.body.hostPassword;
-    const roomName = req.body.roomName;
-    const profile = req.body.profile;
+    const { password } = req.body;
+    const { hostPassword } = req.body;
+    const { roomName } = req.body;
+    const { profile } = req.body;
     const isPrivateRoom = req.body.isPrivate ?? false;
     // A server without passwords are not allowed
     if (!hostPassword || typeof hostPassword !== 'string') {
@@ -354,7 +355,7 @@ export class App {
     }
     const token = authHeader.slice(7);
     const sessionId = req.params.id;
-    const password = req.body.password;
+    const { password } = req.body;
 
     if (!sessionId || typeof sessionId !== 'string') {
       res.status(400).json({ error: 'Session ID is required' });
@@ -391,6 +392,7 @@ export class App {
   public autoKillInactiveSessions(): void {
     let sessions: SessionData[] = [];
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     function handleData(snapshot: DataSnapshot): any {
       if (snapshot.exists()) {
         const data = snapshot.val();

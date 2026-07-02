@@ -22,17 +22,19 @@
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                         *
  ****************************************************************************************/
 
-import { readFileSync } from 'fs';
 import { cert, initializeApp } from 'firebase-admin/app';
+import { readFileSync } from 'fs';
+
 import { env } from './config/env';
 
 function loadServiceAccount(filePath: string, envVar: string): object {
   try {
     return JSON.parse(readFileSync(filePath, 'utf-8'));
-  } catch (err) {
+  } catch (error) {
     throw new Error(
       `Failed to load Firebase service account from ${envVar}="${filePath}": ` +
-        `${(err as Error).message}`
+        `${(error as Error).message}`,
+      { cause: error }
     );
   }
 }
