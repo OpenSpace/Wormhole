@@ -163,7 +163,7 @@ export async function postSession(
 
   const data: SessionData = {
     active: false,
-    inactiveTimeStamp: Date.now(),
+    inactiveTimestamp: Date.now(),
     created: Date.now(),
     usage: 0,
     password: metadata.password,
@@ -254,7 +254,7 @@ export async function postSessionHistoryData(session: SessionData): Promise<void
     const historyRef = db.ref(`SessionHistory/${session.id}`);
     const history: SessionHistoryData = {
       id: session.id,
-      inactiveTimeStamp: session.inactiveTimeStamp,
+      inactiveTimestamp: session.inactiveTimestamp,
       created: session.created,
       uptime: uptime,
       usage: session.usage,
@@ -318,7 +318,7 @@ export async function updateActiveSessionStatus(
     }
     // if instance is offline we also need to update the inactive timestamp
     if (!online) {
-      await instanceRef.update({ active: online, inactiveTimeStamp: Date.now() });
+      await instanceRef.update({ active: online, inactiveTimestamp: Date.now() });
     } else {
       await instanceRef.update({ active: online });
     }
@@ -346,7 +346,7 @@ export async function updateCurrentActiveUsers(
     if (!snapshot.exists()) {
       throw new Error(`Could not find session with id '${sessionId}'`);
     }
-    await instanceRef.update({ nPeers: nPeers });
+    await instanceRef.update({ nPeers: nPeers, inactiveTimestamp: Date.now() });
     LDEBUG(`Session '${sessionId}': active user count updated to ${nPeers}`);
     await updateStatistics(sessionId, nPeers);
   } catch (error) {

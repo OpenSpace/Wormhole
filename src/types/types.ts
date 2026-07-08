@@ -3,7 +3,7 @@ import { Socket } from 'net';
 export type SessionData = {
   id: string;
   active: boolean;
-  inactiveTimeStamp: number;
+  inactiveTimestamp: number;
   created: number;
   usage: number;
   password: string;
@@ -17,7 +17,7 @@ export type SessionData = {
 
 export type SessionHistoryData = {
   id: string;
-  inactiveTimeStamp: number;
+  inactiveTimestamp: number;
   created: number;
   uptime: number;
   usage: number;

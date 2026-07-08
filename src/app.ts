@@ -237,7 +237,7 @@ export class App {
     }
     const token = authHeader.slice(7);
 
-    const { password } = req.body;
+    const password: string | null = req.body.password ?? null;
     const { hostPassword } = req.body;
     const { roomName } = req.body;
     const { profile } = req.body;
@@ -247,7 +247,7 @@ export class App {
       res.status(400).json({ error: 'Missing host password' });
       return;
     }
-    if (password !== undefined && typeof password !== 'string') {
+    if (password !== null && typeof password !== 'string') {
       res.status(400).json({ error: 'Invalid password' });
       return;
     }
@@ -363,7 +363,7 @@ export class App {
     }
 
     if (!password || typeof password !== 'string') {
-      res.status(400).json({ error: 'Missing password' });
+      res.status(400).json({ error: 'Missing host password' });
       return;
     }
 
@@ -419,7 +419,7 @@ export class App {
         const sessionsToRemove: SessionData[] = [];
         for (const session of sessions) {
           // If the server has been running for more than 30 inactive minutes we kill it
-          const inactiveUptime = now - session.inactiveTimeStamp;
+          const inactiveUptime = now - session.inactiveTimestamp;
           if (!session.active && inactiveUptime > thirtyMinutes) {
             sessionsToRemove.push(session);
           }
