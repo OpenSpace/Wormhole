@@ -140,7 +140,7 @@ export class Wormhole {
     // If the session already exists, remove it (this *should* not happen)
     if (name in this._sessions) {
       const oldSession = this._sessions[name];
-      await this.removeSession(oldSession.getSessionMetadata().id!);
+      await this.removeSession(oldSession);
     }
 
     const session = new Session(name, password, hostPassword, id);
@@ -409,6 +409,16 @@ export class Wormhole {
     if (!session) {
       LDEBUG(`Wormhole: session '${sessionName}' not found`);
       return { authenticated: false, message: `Session '${sessionName}': not found` };
+    }
+
+    if (!session.getSessionMetadata().id) {
+      LERROR(
+        `Wormhole: session '${sessionName}' has no ID set when peer '${peer.socket.remoteAddress} tried to connect`
+      );
+      return {
+        authenticated: false,
+        message: 'Missing session ID, session not ready yet, please try again later'
+      };
     }
 
     if (!session.isPasswordValid(password)) {
