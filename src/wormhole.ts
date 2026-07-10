@@ -268,52 +268,68 @@ export class Wormhole {
 
     const payloadSize = dv.getUint32(offset, true);
     offset += Uint32Array.BYTES_PER_ELEMENT;
+
+    const MaxPayloadSize = 128000; // 128 kb limit
+    if (payloadSize > MaxPayloadSize) {
+      LERROR(`Peer #${peer.id}: payload too large (${payloadSize} bytes)`);
+      peer.socket.destroy(new Error('Payload too large'));
+      return ProtocolError;
+    }
+
     const messageSize = offset + payloadSize;
 
     if (buffer.byteLength < messageSize) {
       return NeedMoreData; // Payload hasn't fully arrived yet
     }
 
-    // Slice the header data from the message
-    const messagePayload = buffer.subarray(offset, messageSize);
+    try {
+      // Slice the header data from the message
+      const messagePayload = buffer.subarray(offset, messageSize);
 
-    // Dispatch message
-    switch (messageType) {
-      // Session name is parsed from the payload during authentication
-      case MessageType.Authentication: {
-        const status = this.handleAuthentication(messagePayload, peer);
-        if (status.authenticated) {
-          return messageSize;
-        } else {
-          peer.socket.destroy(new Error(status.message));
-          return ProtocolError;
+      // Dispatch message
+      switch (messageType) {
+        // Session name is parsed from the payload during authentication
+        case MessageType.Authentication: {
+          const status = this.handleAuthentication(messagePayload, peer);
+          if (status.authenticated) {
+            return messageSize;
+          } else {
+            peer.socket.destroy(new Error(status.message));
+            return ProtocolError;
+          }
         }
+        default:
       }
-      default:
-    }
 
-    // All other message types require the peer to already be registered in a session
-    const session = this._sessions[peer.sessionName];
-    if (!session) {
-      LERROR(`Wormhole: session '${peer.sessionName}' not found`);
-      peer.socket.destroy(
-        new Error(`Could not find session with name '${peer.sessionName}'`)
-      );
+      // All other message types require the peer to already be registered in a session
+      const session = this._sessions[peer.sessionName];
+      if (!session) {
+        LERROR(`Wormhole: session '${peer.sessionName}' not found`);
+        peer.socket.destroy(
+          new Error(`Could not find session with name '${peer.sessionName}'`)
+        );
+        return ProtocolError;
+      }
+
+      switch (messageType) {
+        case MessageType.Data:
+          session.handleData(messagePayload, peer);
+          break;
+        case MessageType.HostshipRequest:
+          session.handleHostshipRequest(messagePayload, peer);
+          break;
+        case MessageType.HostshipResignation:
+          session.handleHostshipResignation(peer);
+          break;
+        default:
+          LERROR(`Peer #${peer.id}: Unhandled messageType (${messageType})`);
+          peer.socket.destroy(new Error('Unhandled message type'));
+          return ProtocolError;
+      }
+    } catch (error) {
+      LERROR(`Peer #${peer.id}: malformed payload`);
+      peer.socket.destroy(new Error('Malformed payload'));
       return ProtocolError;
-    }
-
-    switch (messageType) {
-      case MessageType.Data:
-        session.handleData(messagePayload, peer);
-        break;
-      case MessageType.HostshipRequest:
-        session.handleHostshipRequest(messagePayload, peer);
-        break;
-      case MessageType.HostshipResignation:
-        session.handleHostshipResignation(peer);
-        break;
-      default:
-        throw new Error(`Unhandled messageType (${messageType})`);
     }
 
     return messageSize;
