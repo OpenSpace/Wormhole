@@ -51,7 +51,9 @@ export async function setAdminRights(uid: string, secret: string) {
   }
 
   const storedSecret: string = secretSnapshot.val();
-  const isMatch = timingSafeEqual(Buffer.from(secret), Buffer.from(storedSecret));
+  const isMatch =
+    Buffer.byteLength(secret) === Buffer.byteLength(storedSecret) &&
+    timingSafeEqual(Buffer.from(secret), Buffer.from(storedSecret));
   if (!isMatch) {
     throw new Error('Invalid secret provided');
   }
