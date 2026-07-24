@@ -31,10 +31,12 @@ import { SessionData } from './types/types';
 import {
   authorizeAdmin,
   authorizeUser,
+  ForbiddenError,
   getHostPassword,
   getHostPasswordInternal,
   getSessionsFromDb,
   getUserByID,
+  NotFoundError,
   postSession,
   removeSessionFromDb,
   setAdminRights,
@@ -43,17 +45,24 @@ import {
 } from './adminApi';
 import { LERROR, LINFO } from './utils';
 import { Wormhole } from './wormhole';
+import { DB_PATHS } from './constants';
 
 /**
  * Top-level application coordinator. Owns the HTTP REST API and the Wormhole TCP server.
  * Responsible for session lifecycle management, Firebase persistence, and authentication.
  */
 export class App {
+  // The amount of time a server can be empty before it gets removed
+  private EmptyServerGracePeriod = 30 * 60 * 1000; // 30 minutes
+
+  // The interval in which each server is checked for deletion
+  private EmptyServerCheckPeriod = 5 * 60 * 1000; // 5 minutes
+
   // The Wormhole instance managing all active sessions
   private _wormhole: Wormhole;
 
   // The express server that is listening to incoming HTTP requests
-  private _app;
+  private _app: express.Application;
 
   /**
    * @param httpPort The port on which the HTTP server will listen for incoming requests
@@ -197,11 +206,10 @@ export class App {
       const msg = await this.removeSession(instanceID);
       res.status(200).json({ message: msg });
     } catch (e) {
-      const msg = (e as Error).message;
-      if (msg.includes('Insufficient permissions')) {
-        res.status(403).json({ error: msg });
+      if (e instanceof ForbiddenError) {
+        res.status(403).json({ error: (e as Error).message });
       } else {
-        res.status(500).json({ error: msg });
+        res.status(500).json({ error: (e as Error).message });
       }
     }
   }
@@ -325,13 +333,12 @@ export class App {
       const hostPassword = await getHostPassword(sessionId, uid);
       res.status(200).json({ hostPassword });
     } catch (error) {
-      const msg = (error as Error).message;
-      if (msg.includes('Only the session owner')) {
-        res.status(403).json({ error: msg });
-      } else if (msg.includes('does not exist')) {
-        res.status(404).json({ error: msg });
+      if (error instanceof ForbiddenError) {
+        res.status(403).json({ error: (error as Error).message });
+      } else if (error instanceof NotFoundError) {
+        res.status(404).json({ error: (error as Error).message });
       } else {
-        res.status(500).json({ error: msg });
+        res.status(500).json({ error: (error as Error).message });
       }
     }
   }
@@ -372,11 +379,10 @@ export class App {
         res.status(403).json({ error: 'Invalid host password' });
       }
     } catch (error) {
-      const msg = (error as Error).message;
-      if (msg.includes('does not exist')) {
-        res.status(404).json({ error: msg });
+      if (error instanceof NotFoundError) {
+        res.status(404).json({ error: (error as Error).message });
       } else {
-        res.status(500).json({ error: msg });
+        res.status(500).json({ error: (error as Error).message });
       }
     }
   }
@@ -402,12 +408,11 @@ export class App {
       LERROR(`Database: failed to fetch session data`, error);
     }
 
-    subscribeToDatabase('SessionData', 'value', handleData, handleError);
+    subscribeToDatabase(DB_PATHS.sessionData, 'value', handleData, handleError);
 
     setInterval(
       async () => {
         const now = Date.now();
-        const thirtyMinutes = 30 * 60 * 1000;
         // We use an extra array to store the instance we want to remove. Because the
         // removeServerInstanceFromDb will alter the firebase and we are subscribed to the
         // database, as such the `instances` array will update while we would be looping
@@ -416,7 +421,7 @@ export class App {
         for (const session of sessions) {
           // If the server has been running for more than 30 inactive minutes we kill it
           const inactiveUptime = now - session.inactiveTimestamp;
-          if (!session.active && inactiveUptime > thirtyMinutes) {
+          if (!session.active && inactiveUptime > this.EmptyServerGracePeriod) {
             sessionsToRemove.push(session);
           }
         }
@@ -431,7 +436,7 @@ export class App {
           }
         }
       },
-      5 * 60 * 1000 // Run every 5 minutes
+      this.EmptyServerCheckPeriod
     );
   }
 }

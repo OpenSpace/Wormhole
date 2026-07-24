@@ -29,6 +29,11 @@ import { SessionData, SessionHistoryData, StatisticData } from './types/types';
 import { adminAuthApp, adminDbApp } from './adminFirebaseConfig';
 import { Session } from './session';
 import { LDEBUG, LERROR, LINFO } from './utils';
+import { timingSafeEqual } from 'crypto';
+import { DB_PATHS } from './constants';
+
+export class NotFoundError extends Error {}
+export class ForbiddenError extends Error {}
 
 /**
  * Set admin rights for a user in the Firebase auth database.
@@ -39,13 +44,15 @@ import { LDEBUG, LERROR, LINFO } from './utils';
 export async function setAdminRights(uid: string, secret: string) {
   // Verify the provided secret against the database secret
   const db = getDatabase(adminDbApp);
-  const secretSnapshot = await db.ref('Admin/secret').once('value');
+  const secretSnapshot = await db.ref(DB_PATHS.adminSecret).once('value');
 
   if (!secretSnapshot.exists()) {
     throw new Error('Could not find admin secret in database');
   }
 
-  if (secret !== secretSnapshot.val()) {
+  const storedSecret: string = secretSnapshot.val();
+  const isMatch = timingSafeEqual(Buffer.from(secret), Buffer.from(storedSecret));
+  if (!isMatch) {
     throw new Error('Invalid secret provided');
   }
 
@@ -82,7 +89,7 @@ export async function authorizeAdmin(token: string): Promise<string> {
   const auth = getAuth(adminAuthApp);
   const decodedToken = await auth.verifyIdToken(token);
   if (!decodedToken['admin']) {
-    throw new Error('Insufficient permissions: admin rights required');
+    throw new ForbiddenError('Insufficient permissions: admin rights required');
   }
   return decodedToken.uid;
 }
@@ -105,7 +112,7 @@ export async function getUserByID(uid: string): Promise<UserRecord> {
  */
 export async function getSessionsFromDb(): Promise<SessionData[]> {
   const db = getDatabase(adminDbApp);
-  const snapshot = await db.ref('SessionData').once('value');
+  const snapshot = await db.ref(DB_PATHS.sessionData).once('value');
   if (!snapshot.exists()) {
     return [];
   }
@@ -150,15 +157,15 @@ export async function postSession(
   uid: string
 ): Promise<SessionData> {
   const db = getDatabase(adminDbApp);
-  const newPostRef = await db.ref('SessionData').push();
+  const newPostRef = await db.ref(DB_PATHS.sessionData).push();
   const postId = newPostRef.key;
   if (!postId) {
-    throw new Error('Failed to push SessionData to database');
+    throw new Error(`Failed to push ${DB_PATHS.sessionData} to database`);
   }
 
   const metadata = session.getSessionMetadata();
 
-  await db.ref(`SessionSecrets/${postId}`).set({ hostPassword: metadata.hostPassword });
+  await db.ref(`${DB_PATHS.sessionSecrets}/${postId}`).set({ hostPassword: metadata.hostPassword });
   LDEBUG(`Session '${postId}': host password posted to database`);
 
   const data: SessionData = {
@@ -192,19 +199,21 @@ export async function getHostPassword(sessionId: string, uid: string): Promise<s
 
   const sessionSnapshot = await db.ref(`SessionData/${sessionId}`).once('value');
   if (!sessionSnapshot.exists()) {
-    throw new Error(`Session with id '${sessionId}' does not exist`);
+    throw new NotFoundError(`Session with id '${sessionId}' does not exist`);
   }
 
   const session = sessionSnapshot.val() as SessionData;
   if (session.owner !== uid) {
-    throw new Error('Only the session owner can retrieve the host password');
+    throw new ForbiddenError('Only the session owner can retrieve the host password');
   }
 
   const secretSnapshot = await db
-    .ref(`SessionSecrets/${sessionId}/hostPassword`)
+    .ref(`${DB_PATHS.sessionSecrets}/${sessionId}/hostPassword`)
     .once('value');
   if (!secretSnapshot.exists()) {
-    throw new Error(`Host password for session with id '${sessionId}' does not exist`);
+    throw new NotFoundError(
+      `Host password for session with id '${sessionId}' does not exist`
+    );
   }
 
   return secretSnapshot.val();
@@ -222,11 +231,14 @@ export async function verifyHostPassword(
   password: string
 ): Promise<boolean> {
   const db = getDatabase(adminDbApp);
-  const snapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).once('value');
+  const snapshot = await db.ref(`${DB_PATHS.sessionSecrets}/${sessionId}/hostPassword`).once('value');
   if (!snapshot.exists()) {
-    throw new Error(`Could not find host password for session '${sessionId}'`);
+    throw new NotFoundError(`Could not find host password for session '${sessionId}'`);
   }
-  return snapshot.val() === password;
+
+  const storedSecret: string = snapshot.val();
+  const isMatch = timingSafeEqual(Buffer.from(password), Buffer.from(storedSecret));
+  return isMatch;
 }
 
 /**
@@ -238,7 +250,7 @@ export async function verifyHostPassword(
  */
 export async function getHostPasswordInternal(sessionId: string): Promise<string | null> {
   const db = getDatabase(adminDbApp);
-  const snapshot = await db.ref(`SessionSecrets/${sessionId}/hostPassword`).once('value');
+  const snapshot = await db.ref(`${DB_PATHS.sessionSecrets}/${sessionId}/hostPassword`).once('value');
   return snapshot.exists() ? snapshot.val() : null;
 }
 
@@ -289,7 +301,7 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
 
     await postSessionHistoryData(snapshot.val());
     await instanceRef.remove();
-    await db.ref(`SessionSecrets/${sessionId}`).remove();
+    await db.ref(`${DB_PATHS.sessionSecrets}/${sessionId}`).remove();
     LINFO(`Session '${sessionId}': removed from database`);
   } catch (error) {
     const errorMessage = `Session '${sessionId}': failed to remove from database`;
