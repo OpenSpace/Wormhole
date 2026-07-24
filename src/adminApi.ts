@@ -199,7 +199,7 @@ export async function postSession(
 export async function getHostPassword(sessionId: string, uid: string): Promise<string> {
   const db = getDatabase(adminDbApp);
 
-  const sessionSnapshot = await db.ref(`SessionData/${sessionId}`).once('value');
+  const sessionSnapshot = await db.ref(`${DB_PATHS.sessionData}/${sessionId}`).once('value');
   if (!sessionSnapshot.exists()) {
     throw new NotFoundError(`Session with id '${sessionId}' does not exist`);
   }
