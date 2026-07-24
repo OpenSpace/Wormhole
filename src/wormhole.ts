@@ -387,6 +387,9 @@ export class Wormhole {
       .subarray(offset, offset + sessionNameLength)
       .toString('utf-8');
     offset += sessionNameLength;
+    if (!/^[\x00-\x7F]*$/.test(sessionName)) {
+      return { authenticated: false, message: 'Invalid session name (must be ASCII)' };
+    }
     peer.sessionName = sessionName;
 
     const nameLength = dv.getUint8(offset);
