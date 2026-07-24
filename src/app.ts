@@ -2,7 +2,7 @@
  *                                                                                       *
  * Wormhole                                                                              *
  *                                                                                       *
- * Copyright (c) 2026-2026                                                               *
+ * Copyright (c) 2026                                                                    *
  *                                                                                       *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this  *
  * software and associated documentation files (the "Software"), to deal in the Software *
@@ -49,20 +49,16 @@ import { Wormhole } from './wormhole';
  * Responsible for session lifecycle management, Firebase persistence, and authentication.
  */
 export class App {
-  /**
-   * The Wormhole instance managing all active sessions
-   */
+  // The Wormhole instance managing all active sessions
   private _wormhole: Wormhole;
 
-  /**
-   * The express server that is listening to incoming HTTP requests
-   */
+  // The express server that is listening to incoming HTTP requests
   private _app;
 
   /**
    * @param httpPort The port on which the HTTP server will listen for incoming requests
    * @param wormholePort The port on which the Wormhole will listen for incoming peer
-   * connections
+   *                     connections
    * @param apiPath The path to the API endpoint for the server, e.g. `/api`
    */
   constructor(httpPort: number, wormholePort: number, apiPath: string) {
@@ -180,7 +176,7 @@ export class App {
    * session.
    *
    * @param req Request params must contain the session id as `/:id`; must include a
-   * valid admin Bearer token in the authorization header
+   *            valid admin Bearer token in the authorization header
    */
   private async handleRemoveSession(req: Request, res: Response): Promise<void> {
     const authHeader = req.headers.authorization;
@@ -226,7 +222,7 @@ export class App {
    * Handle the request to create a new session.
    *
    * @param req Request body must contain password, hostpassword, roomname, profile, and
-   * token
+   *            token
    * @param res Response object that will receive the session metadata on success
    */
   private async handleRequestSession(req: Request, res: Response): Promise<void> {
@@ -345,7 +341,7 @@ export class App {
    * does not check whether a host is currently active
    *
    * @param req Request params must contain the session id as `/:id`; body must contain
-   * `password`
+   *            `password`
    */
   private async handleClaimHost(req: Request, res: Response): Promise<void> {
     const authHeader = req.headers.authorization;
@@ -386,8 +382,8 @@ export class App {
   }
 
   /**
-   * Automatically removes sessions that have been inactive for more than 30 minutes.
-   * Runs every 5 minutes.
+   * Automatically removes sessions that have been inactive for more than 30 minutes. Runs
+   * every 5 minutes.
    */
   public autoKillInactiveSessions(): void {
     let sessions: SessionData[] = [];
@@ -412,10 +408,10 @@ export class App {
       async () => {
         const now = Date.now();
         const thirtyMinutes = 30 * 60 * 1000;
-        // We use an extra array to store the instance we want to remove.
-        // Because the removeServerInstanceFromDb will alter the firebase and we are
-        // subscribed to the database, as such the `instances` array will update while
-        // we would be looping over it, unsure of the behaviour of that.
+        // We use an extra array to store the instance we want to remove. Because the
+        // removeServerInstanceFromDb will alter the firebase and we are subscribed to the
+        // database, as such the `instances` array will update while we would be looping
+        // over it, unsure of the behaviour of that
         const sessionsToRemove: SessionData[] = [];
         for (const session of sessions) {
           // If the server has been running for more than 30 inactive minutes we kill it

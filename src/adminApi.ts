@@ -2,7 +2,7 @@
  *                                                                                       *
  * Wormhole                                                                              *
  *                                                                                       *
- * Copyright (c) 2026-2026                                                               *
+ * Copyright (c) 2026                                                                    *
  *                                                                                       *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this  *
  * software and associated documentation files (the "Software"), to deal in the Software *
@@ -31,7 +31,7 @@ import { Session } from './session';
 import { LDEBUG, LERROR, LINFO } from './utils';
 
 /**
- * Set admin rights for a user in the Firebase auth database
+ * Set admin rights for a user in the Firebase auth database.
  *
  * @param uid The user uid to set admin rights for
  * @param secret The secret to verify the request
@@ -76,7 +76,7 @@ export async function authorizeUser(token: string): Promise<string> {
  *
  * @param token The client user id token to authorize
  * @return A promise that resolves with the user firebase uid, or rejects if the user
- * is not authenticated or does not have admin rights
+ *         is not authenticated or does not have admin rights
  */
 export async function authorizeAdmin(token: string): Promise<string> {
   const auth = getAuth(adminAuthApp);
@@ -88,7 +88,7 @@ export async function authorizeAdmin(token: string): Promise<string> {
 }
 
 /**
- * Fetch the display name of a user given their uid
+ * Fetch the display name of a user given their uid.
  *
  * @param uid The uid of the user to fetch
  * @return A promise that resolves with the user information
@@ -99,7 +99,7 @@ export async function getUserByID(uid: string): Promise<UserRecord> {
 }
 
 /**
- * Fetch all live sessions from Firebase database
+ * Fetch all live sessions from Firebase database.
  *
  * @return A promise that resolves with an array of sessions
  */
@@ -182,7 +182,7 @@ export async function postSession(
 
 /**
  * Fetch the host password for a given session ID and user ID. Only sessions that are
- * owned by the uid can be fetched
+ * owned by the uid can be fetched.
  *
  * @param sessionId The ID of the session to fetch the host password for
  * @param uid The user ID of the requester
@@ -211,7 +211,7 @@ export async function getHostPassword(sessionId: string, uid: string): Promise<s
 }
 
 /**
- * Verify the given password with the stored host password
+ * Verify the given password with the stored host password.
  *
  * @param sessionId The ID of the session to verify host password for
  * @param password The password submited by the user

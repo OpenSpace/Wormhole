@@ -2,7 +2,7 @@
  *                                                                                       *
  * Wormhole                                                                              *
  *                                                                                       *
- * Copyright (c) 2026-2026                                                               *
+ * Copyright (c) 2026                                                                    *
  *                                                                                       *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this  *
  * software and associated documentation files (the "Software"), to deal in the Software *
@@ -50,8 +50,8 @@ export class Session {
 
   /**
    * The clear-text password that peers need to provide to connect. This password has a
-   * maximum length of 65535 characters and can consist only of ASCII characters.
-   * An empty string means the room is public and any password is accepted.
+   * maximum length of 65535 characters and can consist only of ASCII characters. An empty
+   * string means the room is public and any password is accepted.
    */
   private password: string;
 
@@ -73,9 +73,8 @@ export class Session {
   private peers: Peer[] = [];
 
   /**
-   * The id of the current host. Note that this is **not** the location of this
-   * peer in the `peers` list, but its `id`, which might be different under some
-   * circumstances.
+   * The id of the current host. Note that this is **not** the location of this peer in
+   * the `peers` list, but its `id`, which might be different under some circumstances.
    */
   private currentHostId: number | null = null;
 
@@ -84,11 +83,11 @@ export class Session {
    *
    * @param name The unique name of this session
    * @param password The password peers must provide to join. Maximum 65535 ASCII
-   * characters.
+   *                 characters.
    * @param hostPassword The password peers must provide to claim hostship. Maximum 65535
-   * ASCII characters.
+   *                     ASCII characters.
    * @param id The unique ID assigned by the Firebase database provider, or null if not
-   * yet set
+   *           yet set
    */
   constructor(
     name: string,
@@ -136,7 +135,7 @@ export class Session {
       }
 
       // Create a copy of the peers since `this.peers` can be mutated concurrently by the
-      // Wormhole socket 'error' callback while we're still iterating here.
+      // Wormhole socket 'error' callback while we're still iterating here
       const peersToDisconnect = [...this.peers];
       const settled = new Set<number>();
 
@@ -172,8 +171,8 @@ export class Session {
 
   /**
    * Handles the disconnection of a peer. We remove the peer from the list of connected
-   * peers and free up the ID slot. If the peer that disconnected was the host, we
-   * inform all connected peers that they no longer have a host.
+   * peers and free up the ID slot. If the peer that disconnected was the host, we inform
+   * all connected peers that they no longer have a host.
    *
    * @param peer The peer that just disconnected
    */
@@ -201,8 +200,8 @@ export class Session {
   }
 
   /**
-   * Handle incoming data from the provided peer, we only forward the data along to
-   * other peers if it comes from the host.
+   * Handle incoming data from the provided peer, we only forward the data along to other
+   * peers if it comes from the host.
    *
    * @param data The payload of the data message
    * @param peer The peer from which this message is coming
@@ -228,9 +227,9 @@ export class Session {
   }
 
   /**
-   * Handles an incoming hostship request message by the peer. If the message contains
-   * the correct host password, the peer is promoted to hostship and the previous host
-   * is demoted.
+   * Handles an incoming hostship request message by the peer. If the message contains the
+   * correct host password, the peer is promoted to hostship and the previous host is
+   * demoted.
    *
    * @param data The payload of the hostship request message
    * @param peer The peer from which this message arrived
@@ -296,9 +295,9 @@ export class Session {
 
   /**
    * Registers an already-validated peer into the session: adds it to the list of
-   * connected peers, and promotes it to host if it provided the correct host password
-   * and no host is currently assigned. The caller is responsible for having confirmed
-   * the room password, and an existing `peer.id` already being set.
+   * connected peers, and promotes it to host if it provided the correct host password and
+   * no host is currently assigned. The caller is responsible for having confirmed the
+   * room password, and an existing `peer.id` already being set.
    *
    * @param peer The peer to register
    * @param hostPassword The host password provided by the peer, or null if none was given
@@ -307,8 +306,8 @@ export class Session {
     // We can add this peer to the list of all peers in the group
     this.peers.push(peer);
 
-    // If there is currently no host and this peer provided the host password
-    // we promote them to hostship
+    // If there is currently no host and this peer provided the host password we promote
+    // them to hostship
     if (this.currentHostId === null && hostPassword === this.hostPassword) {
       LDEBUG(
         `Session '${this.name}': peer #${peer.id} ('${peer.name}') promoted to host`

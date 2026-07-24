@@ -2,7 +2,7 @@
  *                                                                                       *
  * Wormhole                                                                              *
  *                                                                                       *
- * Copyright (c) 2026-2026                                                               *
+ * Copyright (c) 2026                                                                    *
  *                                                                                       *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this  *
  * software and associated documentation files (the "Software"), to deal in the Software *
@@ -42,31 +42,23 @@ const ProtocolError = -1;
  * sessions.
  */
 export class Wormhole {
-  /**
-   * The port on which this TCP server is listening.
-   */
+  // The port on which this TCP server is listening
   private _port: number;
 
-  /**
-   * A global id that is assigned to connected peers, regardless of session they belong
-   * to.
-   */
+  // A global id that is assigned to connected peers, regardless of session they belong
+  // to
   private _peerIdCounter: number;
 
-  /**
-   * All sessions currently managed by this Wormhole, keyed by session name.
-   */
+  // All sessions currently managed by this Wormhole, keyed by session name
   private _sessions: { [name: string]: Session } = {};
 
-  /**
-   * The local TCP server that is listening for incoming OpenSpace connections to the
-   * different sessions.
-   */
+  // The local TCP server that is listening for incoming OpenSpace connections to the
+  // different sessions
   private _server: net.Server;
 
   /**
    * @param port The port on which this TCP server should listen for incoming connections.
-   * This port must not already be in use on this computer.
+   *             This port must not already be in use on this computer
    */
   constructor(port: number) {
     this._port = port;
@@ -106,7 +98,7 @@ export class Wormhole {
    * Starts the TCP server and begin accepting incoming connections.
    *
    * @return A promise that resolves to true once the server is listening, or rejects with
-   * an error if the port is unavailable.
+   *         an error if the port is unavailable.
    */
   public start(): Promise<boolean> {
     return new Promise<boolean>((resolve, reject) => {
@@ -214,15 +206,15 @@ export class Wormhole {
 
   /**
    * Attempts to parse and dispatch a single complete message from the front of
-   * `peer.buffer`. If the buffer does not yet hold a full header, or a full header
-   * plus its payload, no action is taken. If the header is malformed, the stream is
-   * considered unrecoverable.
+   * `peer.buffer`. If the buffer does not yet hold a full header, or a full header plus
+   * its payload, no action is taken. If the header is malformed, the stream is considered
+   * unrecoverable.
    *
    * @param peer The Peer whose buffer should be parsed
-   * @return The number of bytes (header + payload) consumed from the front of the
-   * buffer. Return `NeedMoreData` if no complete message could be extracted, which
-   * happens because more data is still needed or `ProtocolError` if the connection was
-   * just terminated due to a protocol error
+   * @return The number of bytes (header + payload) consumed from the front of the buffer.
+   *         Return `NeedMoreData` if no complete message could be extracted, which
+   *         happens because more data is still needed or `ProtocolError` if the
+   *         connection was just terminated due to a protocol error
    */
   private processMessage(peer: Peer): number {
     const HeaderSize =
@@ -327,7 +319,7 @@ export class Wormhole {
           return ProtocolError;
       }
     } catch (error) {
-      LERROR(`Peer #${peer.id}: malformed payload`);
+      LERROR(`Peer #${peer.id}: malformed payload: ${error}`);
       peer.socket.destroy(new Error('Malformed payload'));
       return ProtocolError;
     }
@@ -362,7 +354,7 @@ export class Wormhole {
    * @param data The payload of the authentication message
    * @param peer The Peer from which this message arrived
    * @return An object containing the authentication status (true if authentication
-   * succeedes, false otherwise) and an optional message
+   *         succeedes, false otherwise) and an optional message
    */
   private handleAuthentication(
     data: Buffer,
@@ -413,7 +405,8 @@ export class Wormhole {
 
     if (!session.getSessionMetadata().id) {
       LERROR(
-        `Wormhole: session '${sessionName}' has no ID set when peer '${peer.socket.remoteAddress} tried to connect`
+        `Wormhole: session '${sessionName}' has no ID set when peer ` +
+          `'${peer.socket.remoteAddress} tried to connect`
       );
       return {
         authenticated: false,

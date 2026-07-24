@@ -68,7 +68,7 @@ export type Peer = {
   socket: Socket;
 
   /**
-   * The connection status of this peer
+   * The connection status of this peer.
    */
   status: ConnectionStatus;
 
