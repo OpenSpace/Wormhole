@@ -43,9 +43,9 @@ import {
   subscribeToDatabase,
   verifyHostPassword
 } from './adminApi';
+import { DB_PATHS } from './constants';
 import { LERROR, LINFO } from './utils';
 import { Wormhole } from './wormhole';
-import { DB_PATHS } from './constants';
 
 /**
  * Top-level application coordinator. Owns the HTTP REST API and the Wormhole TCP server.
@@ -78,19 +78,19 @@ export class App {
     this._app.use(cors({ origin: env.CORS_ORIGIN }));
     this._app.use(express.json());
 
-    this._app.post(
-      `${apiPath}/request-admin-rights`,
-      this.handleRequestSetAdminRights.bind(this)
-    );
     this._app.get(
       `${apiPath}/fetch-user-name/:uid`,
       this.handleRequestGetUserNameByID.bind(this)
     );
-    this._app.post(`${apiPath}/request-session`, this.handleRequestSession.bind(this));
     this._app.get(
       `${apiPath}/session/:id/host-password`,
       this.handleGetHostPassword.bind(this)
     );
+    this._app.post(
+      `${apiPath}/request-admin-rights`,
+      this.handleRequestSetAdminRights.bind(this)
+    );
+    this._app.post(`${apiPath}/request-session`, this.handleRequestSession.bind(this));
     this._app.post(`${apiPath}/session/:id/claim-host`, this.handleClaimHost.bind(this));
     this._app.delete(
       `${apiPath}/session/:id/remove`,
@@ -410,33 +410,30 @@ export class App {
 
     subscribeToDatabase(DB_PATHS.sessionData, 'value', handleData, handleError);
 
-    setInterval(
-      async () => {
-        const now = Date.now();
-        // We use an extra array to store the instance we want to remove. Because the
-        // removeServerInstanceFromDb will alter the firebase and we are subscribed to the
-        // database, as such the `instances` array will update while we would be looping
-        // over it, unsure of the behaviour of that
-        const sessionsToRemove: SessionData[] = [];
-        for (const session of sessions) {
-          // If the server has been running for more than 30 inactive minutes we kill it
-          const inactiveUptime = now - session.inactiveTimestamp;
-          if (!session.active && inactiveUptime > this.EmptyServerGracePeriod) {
-            sessionsToRemove.push(session);
-          }
+    setInterval(async () => {
+      const now = Date.now();
+      // We use an extra array to store the instance we want to remove. Because the
+      // removeServerInstanceFromDb will alter the firebase and we are subscribed to the
+      // database, as such the `instances` array will update while we would be looping
+      // over it, unsure of the behaviour of that
+      const sessionsToRemove: SessionData[] = [];
+      for (const session of sessions) {
+        // If the server has been running for more than 30 inactive minutes we kill it
+        const inactiveUptime = now - session.inactiveTimestamp;
+        if (!session.active && inactiveUptime > this.EmptyServerGracePeriod) {
+          sessionsToRemove.push(session);
         }
+      }
 
-        // Remove the sessions that have been inactive for too long
-        for (const session of sessionsToRemove) {
-          try {
-            await this._wormhole.removeSession(session.id);
-            await removeSessionFromDb(session.id);
-          } catch (error) {
-            LERROR(`Session '${session.id}': failed to remove inactive session`, error);
-          }
+      // Remove the sessions that have been inactive for too long
+      for (const session of sessionsToRemove) {
+        try {
+          await this._wormhole.removeSession(session.id);
+          await removeSessionFromDb(session.id);
+        } catch (error) {
+          LERROR(`Session '${session.id}': failed to remove inactive session`, error);
         }
-      },
-      this.EmptyServerCheckPeriod
-    );
+      }
+    }, this.EmptyServerCheckPeriod);
   }
 }
