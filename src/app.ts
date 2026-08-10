@@ -297,6 +297,7 @@ export class App {
         return;
       }
       session.setSessionID(sessionData.id);
+      session.startRecording();
       // Server was successfully created, send back information to the client so they
       // can connect to it through OpenSpace
       res.json(sessionData);

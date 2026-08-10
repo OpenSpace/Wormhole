@@ -12,6 +12,8 @@ declare namespace NodeJS {
     WORMHOLE_PORT?: string;
     // Base path prefix for all REST API routes
     SERVER_API_PATH: string;
+    // Directory where per-session recordings are stored on disk
+    SESSION_RECORDING_DIR: string;
     // Allowed CORS origin for the HTTP server
     CORS_ORIGIN: string;
     // Enable verbose debug logging (default: false)

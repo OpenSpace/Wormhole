@@ -22,11 +22,17 @@
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                         *
  ****************************************************************************************/
 
+import { createWriteStream, readFileSync, WriteStream } from 'fs';
+import * as path from 'path';
+
+import { env } from './config/env';
 import {
   ConnectionStatus,
   CurrentProtocolVersion,
+  DataType,
   MessageType,
-  Peer
+  Peer,
+  RecordedFileEntry
 } from './types/types';
 import {
   updateActiveSessionStatus,
@@ -79,6 +85,37 @@ export class Session {
   private currentHostId: number | null = null;
 
   /**
+   * In-memory buffer of previously received Data messages from the host. The entries
+   * represent the latest authoritative session state and are replayed to newly connected
+   * peers so they can synchronize before receiving live updates.
+   */
+  private recordedEntries: Buffer[] = [];
+
+  /**
+   * File stream used to persist host Data messages for recording and playback.
+   *
+   * Each incomming Data message from the host is serialized and appended to disk
+   * together with a relative timestamp (milliseconds since the start of the current
+   * recording segement).
+   *
+   * Binary layout per entry:
+   * [double (64-bit) elapsedMs][uin32 payloadLength][payload bytes]
+   */
+  private recordingStream: WriteStream | null = null;
+
+  /**
+   * Elapsed ms accumulated in previous runs (0 for a brand-new session, restored from
+   * last entry in the file when resuming)
+   */
+  private recordingElapsedOffsetMs: number = 0;
+
+  /**
+   * Wall-clock time when the first entry of this process run was recorded. A session
+   * without a host does not start its clock.
+   */
+  private recordingSegmentStartMs: number | null = null;
+
+  /**
    * Creates a new Session.
    *
    * @param name The unique name of this session
@@ -100,6 +137,7 @@ export class Session {
     this.hostPassword = hostPassword;
     if (id) {
       this.id = id;
+      this.resumeRecording();
     }
   }
 
@@ -128,6 +166,8 @@ export class Session {
    * Forcibly closes the session, disconnecting all connected peers.
    */
   public stop(): Promise<void> {
+    this.stopRecording();
+
     return new Promise((resolve) => {
       if (this.peers.length === 0) {
         resolve();
@@ -217,6 +257,8 @@ export class Session {
         );
       }
 
+      this.recordEntry(data);
+
       const message = this.buildMessage(MessageType.Data, data);
       this.peers.forEach((peer: Peer) => {
         if (peer.status === ConnectionStatus.ClientWithHost) {
@@ -303,6 +345,9 @@ export class Session {
    * @param hostPassword The host password provided by the peer, or null if none was given
    */
   public registerPeer(peer: Peer, hostPassword: string | null): void {
+    // Bring the peer up-to speed on the latest state changes
+    this.replayRecordedEntries(peer);
+
     // We can add this peer to the list of all peers in the group
     this.peers.push(peer);
 
@@ -327,6 +372,161 @@ export class Session {
 
     this.sendNumberOfConnections();
     updateUsage(this.id!);
+  }
+
+  /**
+   * Starts a new, empty recording file for this session and opens it for writing.
+   */
+  public startRecording(): void {
+    this.recordingStream = createWriteStream(this.recordingFilePath(), { flags: 'w' });
+    this.recordingStream.on('error', (error) => {
+      LERROR(`Session '${this.id}': recording stream error`, error);
+    });
+  }
+
+  /**
+   * Loads an existing recording file's entries into memory and reopens the file for
+   * writing (appending).
+   */
+  private resumeRecording(): void {
+    try {
+      const fileData = readFileSync(this.recordingFilePath());
+      const entries = this.parseRecordingEntries(fileData);
+
+      for (const entry of entries) {
+        if (entry.data.readUint8(0) === DataType.Script) {
+          this.recordedEntries.push(entry.data);
+        }
+      }
+
+      if (entries.length > 0) {
+        this.recordingElapsedOffsetMs = entries[entries.length - 1].elapsedMs;
+      }
+    } catch (error) {
+      LERROR(
+        `Session '${this.id}': failed to load existing recording file '${this.recordingFilePath()}'`,
+        error
+      );
+    }
+
+    this.recordingStream = createWriteStream(this.recordingFilePath(), { flags: 'a' });
+    this.recordingStream.on('error', (error) => {
+      LERROR(`Session '${this.id}': recording stream error`, error);
+    });
+  }
+
+  /**
+   * Stop recording entries and close the recording file.
+   */
+  private stopRecording(): void {
+    if (this.recordingStream) {
+      this.recordingStream.end();
+      this.recordingStream = null;
+    }
+  }
+
+  private recordingFilePath(): string {
+    return path.join(env.SESSION_RECORDING_DIR, `${this.id}.astrorec`);
+  }
+
+  /**
+   * Parses a recording file's contents into individual entries. Each entry on disk is
+   * stored as: a double elapsed-ms field, a uint32 length prefix followed by that many
+   * bytes of the raw Data payload.
+   *
+   * @param buffer The full contents of the recording file
+   * @returns The list of individual entry buffers, in original order
+   */
+  private parseRecordingEntries(buffer: Buffer): RecordedFileEntry[] {
+    const entries: RecordedFileEntry[] = [];
+    let offset = 0;
+
+    const headerSize = Float64Array.BYTES_PER_ELEMENT + Uint32Array.BYTES_PER_ELEMENT;
+    while (offset + headerSize <= buffer.byteLength) {
+      const elapsedMs = buffer.readDoubleLE(offset);
+      offset += Float64Array.BYTES_PER_ELEMENT;
+
+      const length = buffer.readUInt32LE(offset);
+      offset += Uint32Array.BYTES_PER_ELEMENT;
+
+      if (offset + length > buffer.byteLength) {
+        LERROR(
+          `Session '${this.id}': recording file ends with a  truncated entry, discarding it`
+        );
+        break;
+      }
+
+      entries.push({ elapsedMs, data: buffer.subarray(offset, offset + length) });
+      offset += length;
+    }
+
+    return entries;
+  }
+
+  /**
+   * Record the given data entry to file on disk, tagged with the time elapsed since
+   * recording started. Scripts events are also stored in RAM for late-joining peers.
+   * Camera and Time updates will be recieved immediately upon joining and are therefore
+   * excluded from RAM cache.
+   *
+   * @param data The raw Data message payload (dataType + timestamp + type-specific data)
+   */
+  private recordEntry(data: Buffer): void {
+    if (!this.recordingStream) {
+      LERROR(`Session '${this.id}': dropped recording entry, recording stream not open`);
+      return;
+    }
+    const entry = Buffer.from(data);
+
+    const header = Buffer.alloc(
+      Float64Array.BYTES_PER_ELEMENT + Uint32Array.BYTES_PER_ELEMENT
+    );
+    header.writeDoubleLE(this.currentElapsedMs(), 0);
+    const offset = Float64Array.BYTES_PER_ELEMENT;
+    header.writeUInt32LE(entry.byteLength, offset);
+    this.recordingStream.write(Buffer.concat([header, entry]));
+
+    // Store only Scripts events in RAM
+    const dataType = data.readUint8(0);
+    if (dataType === DataType.Script) {
+      this.recordedEntries.push(entry);
+    }
+  }
+
+  /**
+   * Sends all recorded Script data messages directly to the given peer, in original
+   * order, to bring a newly-joined peer up to date with state changes that happened before
+   * they connected.
+   *
+   * @param peer The newly-joining peer to catch up
+   */
+  private replayRecordedEntries(peer: Peer): void {
+    if (this.recordedEntries.length === 0) {
+      return;
+    }
+
+    LDEBUG(
+      `Session '${this.id}': replaying ${this.recordedEntries.length} recorded ` +
+        `entries to peer #${peer.id} ('${peer.name}')`
+    );
+
+    for (const entry of this.recordedEntries) {
+      this.sendMessage(peer, MessageType.Data, entry);
+    }
+  }
+
+  /**
+   * @return The number of milliseconds since recording started for this session. Time 0
+   * is the first Data messaged ever recorded for the session, it is not reset by host
+   * disconnecting and/or recoonecting. If the server restarts mid-session, the downtime
+   * itself is not counted, i.e., elapsed time picks up where the previous run left off.
+   */
+  private currentElapsedMs(): number {
+    if (this.recordingSegmentStartMs === null) {
+      this.recordingSegmentStartMs = Date.now();
+    }
+
+    return this.recordingElapsedOffsetMs + (Date.now() - this.recordingSegmentStartMs);
   }
 
   /**

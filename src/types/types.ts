@@ -41,6 +41,12 @@ export enum MessageType {
   NConnections
 }
 
+export enum DataType {
+  Camera = 0,
+  Time,
+  Script
+}
+
 export enum ConnectionStatus {
   Disconnected = 0,
   Connecting,
@@ -83,4 +89,9 @@ export type Peer = {
    * application-level message. As such, we must parse the messages.
    */
   buffer: Buffer;
+};
+
+export type RecordedFileEntry = {
+  elapsedMs: number;
+  data: Buffer;
 };
