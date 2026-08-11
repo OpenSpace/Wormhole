@@ -425,8 +425,19 @@ export class Session {
     }
   }
 
+  /**
+   * @param id The session ID to compute the recording file path for
+   * @returns The path to that session's recording file on disk
+   */
+  public static recordingFilePathFor(id: string): string {
+    return path.join(env.SESSION_RECORDING_DIR, `${id}.astrorec`);
+  }
+
+  /**
+   * @returns The path to this session's recording file on disk
+   */
   private recordingFilePath(): string {
-    return path.join(env.SESSION_RECORDING_DIR, `${this.id}.astrorec`);
+    return Session.recordingFilePathFor(this.id!);
   }
 
   /**

@@ -44,6 +44,7 @@ import {
   verifyHostPassword
 } from './adminApi';
 import { DB_PATHS } from './constants';
+import { Session } from './session';
 import { LERROR, LINFO } from './utils';
 import { Wormhole } from './wormhole';
 
@@ -85,6 +86,10 @@ export class App {
     this._app.get(
       `${apiPath}/session/:id/host-password`,
       this.handleGetHostPassword.bind(this)
+    );
+    this._app.get(
+      `${apiPath}/session/:id/recording`,
+      this.handleDownloadRecording.bind(this)
     );
     this._app.post(
       `${apiPath}/request-admin-rights`,
@@ -341,6 +346,39 @@ export class App {
       } else {
         res.status(500).json({ error: (error as Error).message });
       }
+    }
+  }
+
+  /**
+   * Handle a request to download a session's recording file
+   *
+   * @param req Request params must contain the session id as `/:id`
+   */
+  private async handleDownloadRecording(req: Request, res: Response): Promise<void> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid authorization header' });
+      return;
+    }
+    const token = authHeader.slice(7);
+    const sessionId = req.params.id;
+
+    if (!sessionId || typeof sessionId !== 'string') {
+      res.status(400).json({ error: 'Session ID is required' });
+      return;
+    }
+
+    try {
+      await authorizeUser(token);
+      const filePath = Session.recordingFilePathFor(sessionId);
+      res.download(filePath, `${sessionId}.astrorec`, (error) => {
+        if (error && !res.headersSent) {
+          LERROR(`Session '${sessionId}': failed to send recording file`, error);
+          res.status(404).json({ error: 'Recording file not found' });
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to download recording file' });
     }
   }
 
