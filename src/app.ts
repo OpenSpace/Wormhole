@@ -368,6 +368,11 @@ export class App {
       return;
     }
 
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID format' });
+      return;
+    }
+
     try {
       await authorizeUser(token);
       const filePath = Session.recordingFilePathFor(sessionId);

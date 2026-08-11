@@ -94,12 +94,12 @@ export class Session {
   /**
    * File stream used to persist host Data messages for recording and playback.
    *
-   * Each incomming Data message from the host is serialized and appended to disk
+   * Each incoming Data message from the host is serialized and appended to disk
    * together with a relative timestamp (milliseconds since the start of the current
-   * recording segement).
+   * recording segment).
    *
    * Binary layout per entry:
-   * [double (64-bit) elapsedMs][uin32 payloadLength][payload bytes]
+   * [double (64-bit) elapsedMs][uint32 payloadLength][payload bytes]
    */
   private recordingStream: WriteStream | null = null;
 
@@ -395,7 +395,7 @@ export class Session {
 
       for (const entry of entries) {
         if (entry.data.readUint8(0) === DataType.Script) {
-          this.recordedEntries.push(entry.data);
+          this.recordedEntries.push(Buffer.from(entry.data));
         }
       }
 
@@ -462,7 +462,7 @@ export class Session {
 
       if (offset + length > buffer.byteLength) {
         LERROR(
-          `Session '${this.id}': recording file ends with a  truncated entry, discarding it`
+          `Session '${this.id}': recording file ends with a truncated entry, discarding it`
         );
         break;
       }
@@ -476,8 +476,8 @@ export class Session {
 
   /**
    * Record the given data entry to file on disk, tagged with the time elapsed since
-   * recording started. Scripts events are also stored in RAM for late-joining peers.
-   * Camera and Time updates will be recieved immediately upon joining and are therefore
+   * recording started. Script events are also stored in RAM for late-joining peers.
+   * Camera and Time updates will be receieved immediately upon joining and are therefore
    * excluded from RAM cache.
    *
    * @param data The raw Data message payload (dataType + timestamp + type-specific data)
@@ -498,7 +498,7 @@ export class Session {
     this.recordingStream.write(Buffer.concat([header, entry]));
 
     // Store only Scripts events in RAM
-    const dataType = data.readUint8(0);
+    const dataType = data.readUInt8(0);
     if (dataType === DataType.Script) {
       this.recordedEntries.push(entry);
     }
@@ -528,8 +528,8 @@ export class Session {
 
   /**
    * @return The number of milliseconds since recording started for this session. Time 0
-   * is the first Data messaged ever recorded for the session, it is not reset by host
-   * disconnecting and/or recoonecting. If the server restarts mid-session, the downtime
+   * is the first Data message ever recorded for the session, it is not reset by host
+   * disconnecting and/or reconnecting. If the server restarts mid-session, the downtime
    * itself is not counted, i.e., elapsed time picks up where the previous run left off.
    */
   private currentElapsedMs(): number {
