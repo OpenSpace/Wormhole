@@ -477,7 +477,7 @@ export class Session {
   /**
    * Record the given data entry to file on disk, tagged with the time elapsed since
    * recording started. Script events are also stored in RAM for late-joining peers.
-   * Camera and Time updates will be receieved immediately upon joining and are therefore
+   * Camera and Time updates will be received immediately upon joining and are therefore
    * excluded from RAM cache.
    *
    * @param data The raw Data message payload (dataType + timestamp + type-specific data)
