@@ -22,15 +22,15 @@
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                         *
  ****************************************************************************************/
 
+import { timingSafeEqual } from 'crypto';
 import { getAuth, UserRecord } from 'firebase-admin/auth';
 import { DataSnapshot, EventType, getDatabase, Reference } from 'firebase-admin/database';
 
 import { SessionData, SessionHistoryData, StatisticData } from './types/types';
 import { adminAuthApp, adminDbApp } from './adminFirebaseConfig';
+import { DB_PATHS } from './constants';
 import { Session } from './session';
 import { LDEBUG, LERROR, LINFO } from './utils';
-import { timingSafeEqual } from 'crypto';
-import { DB_PATHS } from './constants';
 
 export class NotFoundError extends Error {}
 export class ForbiddenError extends Error {}
@@ -167,7 +167,9 @@ export async function postSession(
 
   const metadata = session.getSessionMetadata();
 
-  await db.ref(`${DB_PATHS.sessionSecrets}/${postId}`).set({ hostPassword: metadata.hostPassword });
+  await db
+    .ref(`${DB_PATHS.sessionSecrets}/${postId}`)
+    .set({ hostPassword: metadata.hostPassword });
   LDEBUG(`Session '${postId}': host password posted to database`);
 
   const data: SessionData = {
@@ -199,7 +201,9 @@ export async function postSession(
 export async function getHostPassword(sessionId: string, uid: string): Promise<string> {
   const db = getDatabase(adminDbApp);
 
-  const sessionSnapshot = await db.ref(`${DB_PATHS.sessionData}/${sessionId}`).once('value');
+  const sessionSnapshot = await db
+    .ref(`${DB_PATHS.sessionData}/${sessionId}`)
+    .once('value');
   if (!sessionSnapshot.exists()) {
     throw new NotFoundError(`Session with id '${sessionId}' does not exist`);
   }
@@ -233,7 +237,9 @@ export async function verifyHostPassword(
   password: string
 ): Promise<boolean> {
   const db = getDatabase(adminDbApp);
-  const snapshot = await db.ref(`${DB_PATHS.sessionSecrets}/${sessionId}/hostPassword`).once('value');
+  const snapshot = await db
+    .ref(`${DB_PATHS.sessionSecrets}/${sessionId}/hostPassword`)
+    .once('value');
   if (!snapshot.exists()) {
     throw new NotFoundError(`Could not find host password for session '${sessionId}'`);
   }
@@ -252,7 +258,9 @@ export async function verifyHostPassword(
  */
 export async function getHostPasswordInternal(sessionId: string): Promise<string | null> {
   const db = getDatabase(adminDbApp);
-  const snapshot = await db.ref(`${DB_PATHS.sessionSecrets}/${sessionId}/hostPassword`).once('value');
+  const snapshot = await db
+    .ref(`${DB_PATHS.sessionSecrets}/${sessionId}/hostPassword`)
+    .once('value');
   return snapshot.exists() ? snapshot.val() : null;
 }
 

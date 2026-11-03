@@ -43,9 +43,10 @@ import {
   subscribeToDatabase,
   verifyHostPassword
 } from './adminApi';
+import { DB_PATHS } from './constants';
+import { Session } from './session';
 import { LERROR, LINFO } from './utils';
 import { Wormhole } from './wormhole';
-import { DB_PATHS } from './constants';
 
 /**
  * Top-level application coordinator. Owns the HTTP REST API and the Wormhole TCP server.
@@ -78,19 +79,23 @@ export class App {
     this._app.use(cors({ origin: env.CORS_ORIGIN }));
     this._app.use(express.json());
 
-    this._app.post(
-      `${apiPath}/request-admin-rights`,
-      this.handleRequestSetAdminRights.bind(this)
-    );
     this._app.get(
       `${apiPath}/fetch-user-name/:uid`,
       this.handleRequestGetUserNameByID.bind(this)
     );
-    this._app.post(`${apiPath}/request-session`, this.handleRequestSession.bind(this));
     this._app.get(
       `${apiPath}/session/:id/host-password`,
       this.handleGetHostPassword.bind(this)
     );
+    this._app.get(
+      `${apiPath}/session/:id/recording`,
+      this.handleDownloadRecording.bind(this)
+    );
+    this._app.post(
+      `${apiPath}/request-admin-rights`,
+      this.handleRequestSetAdminRights.bind(this)
+    );
+    this._app.post(`${apiPath}/request-session`, this.handleRequestSession.bind(this));
     this._app.post(`${apiPath}/session/:id/claim-host`, this.handleClaimHost.bind(this));
     this._app.delete(
       `${apiPath}/session/:id/remove`,
@@ -297,6 +302,7 @@ export class App {
         return;
       }
       session.setSessionID(sessionData.id);
+      session.startRecording();
       // Server was successfully created, send back information to the client so they
       // can connect to it through OpenSpace
       res.json(sessionData);
@@ -340,6 +346,44 @@ export class App {
       } else {
         res.status(500).json({ error: (error as Error).message });
       }
+    }
+  }
+
+  /**
+   * Handle a request to download a session's recording file
+   *
+   * @param req Request params must contain the session id as `/:id`
+   */
+  private async handleDownloadRecording(req: Request, res: Response): Promise<void> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid authorization header' });
+      return;
+    }
+    const token = authHeader.slice(7);
+    const sessionId = req.params.id;
+
+    if (!sessionId || typeof sessionId !== 'string') {
+      res.status(400).json({ error: 'Session ID is required' });
+      return;
+    }
+
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID format' });
+      return;
+    }
+
+    try {
+      await authorizeUser(token);
+      const filePath = Session.recordingFilePathFor(sessionId);
+      res.download(filePath, `${sessionId}.astrorec`, (error) => {
+        if (error && !res.headersSent) {
+          LERROR(`Session '${sessionId}': failed to send recording file`, error);
+          res.status(404).json({ error: 'Recording file not found' });
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to download recording file' });
     }
   }
 
@@ -410,33 +454,30 @@ export class App {
 
     subscribeToDatabase(DB_PATHS.sessionData, 'value', handleData, handleError);
 
-    setInterval(
-      async () => {
-        const now = Date.now();
-        // We use an extra array to store the instance we want to remove. Because the
-        // removeServerInstanceFromDb will alter the firebase and we are subscribed to the
-        // database, as such the `instances` array will update while we would be looping
-        // over it, unsure of the behaviour of that
-        const sessionsToRemove: SessionData[] = [];
-        for (const session of sessions) {
-          // If the server has been running for more than 30 inactive minutes we kill it
-          const inactiveUptime = now - session.inactiveTimestamp;
-          if (!session.active && inactiveUptime > this.EmptyServerGracePeriod) {
-            sessionsToRemove.push(session);
-          }
+    setInterval(async () => {
+      const now = Date.now();
+      // We use an extra array to store the instance we want to remove. Because the
+      // removeServerInstanceFromDb will alter the firebase and we are subscribed to the
+      // database, as such the `instances` array will update while we would be looping
+      // over it, unsure of the behaviour of that
+      const sessionsToRemove: SessionData[] = [];
+      for (const session of sessions) {
+        // If the server has been running for more than 30 inactive minutes we kill it
+        const inactiveUptime = now - session.inactiveTimestamp;
+        if (!session.active && inactiveUptime > this.EmptyServerGracePeriod) {
+          sessionsToRemove.push(session);
         }
+      }
 
-        // Remove the sessions that have been inactive for too long
-        for (const session of sessionsToRemove) {
-          try {
-            await this._wormhole.removeSession(session.id);
-            await removeSessionFromDb(session.id);
-          } catch (error) {
-            LERROR(`Session '${session.id}': failed to remove inactive session`, error);
-          }
+      // Remove the sessions that have been inactive for too long
+      for (const session of sessionsToRemove) {
+        try {
+          await this._wormhole.removeSession(session.id);
+          await removeSessionFromDb(session.id);
+        } catch (error) {
+          LERROR(`Session '${session.id}': failed to remove inactive session`, error);
         }
-      },
-      this.EmptyServerCheckPeriod
-    );
+      }
+    }, this.EmptyServerCheckPeriod);
   }
 }

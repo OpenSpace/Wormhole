@@ -22,12 +22,15 @@
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                         *
  ****************************************************************************************/
 
+import { mkdirSync } from 'fs';
+
 import { env } from './config/env';
 import { App } from './app';
 import { LERROR } from './utils';
 
 async function main() {
   const application = new App(env.HTTP_PORT, env.WORMHOLE_PORT, env.SERVER_API_PATH);
+  mkdirSync(env.SESSION_RECORDING_DIR, { recursive: true });
   await application.loadSessionsFromDB();
   application.autoKillInactiveSessions();
   application.startWormhole();

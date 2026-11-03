@@ -12,7 +12,8 @@ const envSchema = z.object({
   DEBUG: z.coerce.boolean().default(false),
   ADMIN_AUTH_SDK_FILEPATH: z.string(),
   ADMIN_DB_SDK_FILEPATH: z.string(),
-  DATABASE_FIREBASE_DATABASE_URL: z.httpUrl()
+  DATABASE_FIREBASE_DATABASE_URL: z.httpUrl(),
+  SESSION_RECORDING_DIR: z.string()
 });
 
 const result = envSchema.safeParse(process.env);
