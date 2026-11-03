@@ -373,21 +373,20 @@ export async function removeSessionHistory(sessionId: string): Promise<void> {
   try {
     const db = getDatabase(adminDbApp);
     const historyRef = db.ref(`${DB_PATHS.sessionHistory}/${sessionId}`);
-    const statisticsRef = db.ref(`${DB_PATHS.statistics}/${sessionId}`);
-
     const historySnapshot = await historyRef.once('value');
-    const statisticsSnapshot = await statisticsRef.once('value');
 
-    if (!historySnapshot.exists() || !statisticsSnapshot.exists()) {
+    if (!historySnapshot.exists()) {
       const errorMessage = `Session '${sessionId}': does not exist, cannot remove`;
       LDEBUG(errorMessage);
       throw new Error(errorMessage);
     }
 
-    await historyRef.remove();
-    await statisticsRef.remove();
     // Delete the recording file, `force` makes this a no-op if the file does not exist
     await fs.rm(Session.recordingFilePathFor(sessionId), { force: true });
+    await db.ref().update({
+      [`${DB_PATHS.sessionHistory}/${sessionId}`]: null,
+      [`${DB_PATHS.statistics}/${sessionId}`]: null
+    });
   } catch (error) {
     const errorMessage = `Session '${sessionId}': failed to remove session history`;
     LERROR(errorMessage, error);

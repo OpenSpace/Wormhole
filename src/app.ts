@@ -172,22 +172,12 @@ export class App {
     // Add sessions to internal registry
     for (const instance of instances) {
       const hostPassword = (await getHostPasswordInternal(instance.id)) ?? '';
-      try {
-        await this._wormhole.addSession(
-          instance.roomName,
-          instance.password,
-          hostPassword,
-          instance.id
-        );
-      } catch (error) {
-        // Legacy sessions with non-ASCII names or passwords cannot be restored
-        // since OpenSpace only supports single-byte characters. Skip them instead
-        // of failing the whole server startup.
-        LERROR(
-          `Database: failed to restore session '${instance.roomName}' ` +
-            `(${instance.id}): ${(error as Error).message}`
-        );
-      }
+      await this._wormhole.addSession(
+        instance.roomName,
+        instance.password,
+        hostPassword,
+        instance.id
+      );
     }
 
     LINFO(
