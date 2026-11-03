@@ -25,8 +25,14 @@
 import { timingSafeEqual } from 'crypto';
 import { getAuth, UserRecord } from 'firebase-admin/auth';
 import { DataSnapshot, EventType, getDatabase, Reference } from 'firebase-admin/database';
+import { promises as fs } from 'fs';
 
-import { SessionData, SessionHistoryData, StatisticData } from './types/types';
+import {
+  SessionCreateOptions,
+  SessionData,
+  SessionHistoryData,
+  StatisticData
+} from './types/types';
 import { adminAuthApp, adminDbApp } from './adminFirebaseConfig';
 import { DB_PATHS } from './constants';
 import { Session } from './session';
@@ -124,71 +130,30 @@ export async function getSessionsFromDb(): Promise<SessionData[]> {
 }
 
 /**
- * Subscribe to the database at `path` and listen for `eventType` events.
+ * Fetch a single live session from the Firebase database.
  *
- * @param path The path to the database to subscribe to
- * @param eventType The type of event to listen for
- * @param callback The callback function when an event is triggered
- * @param onError The callback function when an error occurs
+ * @param sessionId The ID of the session to fetch
+ * @return A promise that resolves with the session data, or null if it does not exist
  */
-export function subscribeToDatabase(
-  path: string | Reference,
-  eventType: EventType,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  callback: (snapshot: DataSnapshot, b?: string | null | undefined) => any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onError: (error: Error) => any
-) {
+export async function getSessionData(sessionId: string): Promise<SessionData | null> {
   const db = getDatabase(adminDbApp);
-  const instanceRef = db.ref(path);
-  instanceRef.on(eventType, callback, onError);
+  const snapshot = await db.ref(`${DB_PATHS.sessionData}/${sessionId}`).once('value');
+  return snapshot.exists() ? (snapshot.val() as SessionData) : null;
 }
 
 /**
- * Adds a new server instance to the database.
+ * Fetch a single session from the history database.
  *
- * @param session The server instance to add to the database
- * @param profile The OpenSpace profile this instance is running
- * @param isPrivate True if instance is private, false otherwise
- * @param uid The uid of the user who created this instance
+ * @param sessionId The ID of the session to fetch
+ * @return A promise that resolves with the session history data, or null if it does
+ *         not exist
  */
-export async function postSession(
-  session: Session,
-  profile: string,
-  isPrivate: boolean,
-  uid: string
-): Promise<SessionData> {
+export async function getSessionHistory(
+  sessionId: string
+): Promise<SessionHistoryData | null> {
   const db = getDatabase(adminDbApp);
-  const newPostRef = await db.ref(DB_PATHS.sessionData).push();
-  const postId = newPostRef.key;
-  if (!postId) {
-    throw new Error(`Failed to push ${DB_PATHS.sessionData} to database`);
-  }
-
-  const metadata = session.getSessionMetadata();
-
-  await db
-    .ref(`${DB_PATHS.sessionSecrets}/${postId}`)
-    .set({ hostPassword: metadata.hostPassword });
-  LDEBUG(`Session '${postId}': host password posted to database`);
-
-  const data: SessionData = {
-    active: false,
-    inactiveTimestamp: Date.now(),
-    created: Date.now(),
-    usage: 0,
-    password: metadata.password,
-    nPeers: 0,
-    currentHost: '',
-    roomName: metadata.sessionName,
-    profile: profile,
-    id: postId,
-    isPrivate: isPrivate,
-    owner: uid
-  };
-  await newPostRef.set(data);
-  LDEBUG(`Session '${postId}': new instance posted to database`, data);
-  return data;
+  const snapshot = await db.ref(`${DB_PATHS.sessionHistory}/${sessionId}`).once('value');
+  return snapshot.exists() ? (snapshot.val() as SessionHistoryData) : null;
 }
 
 /**
@@ -223,6 +188,82 @@ export async function getHostPassword(sessionId: string, uid: string): Promise<s
   }
 
   return secretSnapshot.val();
+}
+
+/**
+ * Subscribe to the database at `path` and listen for `eventType` events.
+ *
+ * @param path The path to the database to subscribe to
+ * @param eventType The type of event to listen for
+ * @param callback The callback function when an event is triggered
+ * @param onError The callback function when an error occurs
+ */
+export function subscribeToDatabase(
+  path: string | Reference,
+  eventType: EventType,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  callback: (snapshot: DataSnapshot, b?: string | null | undefined) => any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onError: (error: Error) => any
+) {
+  const db = getDatabase(adminDbApp);
+  const instanceRef = db.ref(path);
+  instanceRef.on(eventType, callback, onError);
+}
+
+/**
+ * Adds a new server instance to the database.
+ *
+ * @param session The server instance to add to the database
+ * @param profile The OpenSpace profile this instance is running
+ * @param isPrivate True if instance is private, false otherwise
+ * @param uid The uid of the user who created this instance
+ * @param options Optional session metadata (description, version, keepAlive, start/end
+ *        date), missing values fall back to the defaults
+ */
+export async function postSession(
+  session: Session,
+  profile: string,
+  isPrivate: boolean,
+  uid: string,
+  options: SessionCreateOptions = {}
+): Promise<SessionData> {
+  const db = getDatabase(adminDbApp);
+  const newPostRef = await db.ref(DB_PATHS.sessionData).push();
+  const postId = newPostRef.key;
+  if (!postId) {
+    throw new Error(`Failed to push ${DB_PATHS.sessionData} to database`);
+  }
+
+  const metadata = session.getSessionMetadata();
+
+  await db
+    .ref(`${DB_PATHS.sessionSecrets}/${postId}`)
+    .set({ hostPassword: metadata.hostPassword });
+  LDEBUG(`Session '${postId}': host password posted to database`);
+
+  const data: SessionData = {
+    active: false,
+    inactiveTimestamp: Date.now(),
+    created: Date.now(),
+    usage: 0,
+    password: metadata.password,
+    nPeers: 0,
+    currentHost: '',
+    roomName: metadata.sessionName,
+    profile: profile,
+    id: postId,
+    isPrivate: isPrivate,
+    owner: uid,
+    description: options.description ?? '',
+    version: options.version ?? '',
+    keepAlive: options.keepAlive ?? false,
+    startDate: options.startDate ?? 0,
+    endDate: options.endDate ?? 0
+  };
+  await newPostRef.set(data);
+  LDEBUG(`Session '${postId}': new instance posted to database`, data);
+  return data;
 }
 
 /**
@@ -273,7 +314,7 @@ export async function postSessionHistoryData(session: SessionData): Promise<void
   try {
     const db = getDatabase(adminDbApp);
     const uptime = Date.now() - session.created;
-    const historyRef = db.ref(`SessionHistory/${session.id}`);
+    const historyRef = db.ref(`${DB_PATHS.sessionHistory}/${session.id}`);
     const history: SessionHistoryData = {
       id: session.id,
       inactiveTimestamp: session.inactiveTimestamp,
@@ -299,7 +340,7 @@ export async function postSessionHistoryData(session: SessionData): Promise<void
 export async function removeSessionFromDb(sessionId: string): Promise<void> {
   try {
     const db = getDatabase(adminDbApp);
-    const instanceRef = db.ref(`SessionData/${sessionId}`);
+    const instanceRef = db.ref(`${DB_PATHS.sessionData}/${sessionId}`);
 
     const snapshot = await instanceRef.once('value');
 
@@ -321,6 +362,41 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
 }
 
 /**
+ * Completely removes a previous session from the server: deletes the history entry and
+ * the statistics from the database, and deletes the recording file from disk (if it
+ * exists).
+ *
+ * @param sessionId The ID of the session to remove
+ * @return A promise once the operation is complete or an exception if an error occurs
+ */
+export async function removeSessionHistory(sessionId: string): Promise<void> {
+  try {
+    const db = getDatabase(adminDbApp);
+    const historyRef = db.ref(`${DB_PATHS.sessionHistory}/${sessionId}`);
+    const statisticsRef = db.ref(`${DB_PATHS.statistics}/${sessionId}`);
+
+    const historySnapshot = await historyRef.once('value');
+    const statisticsSnapshot = await statisticsRef.once('value');
+
+    if (!historySnapshot.exists() || !statisticsSnapshot.exists()) {
+      const errorMessage = `Session '${sessionId}': does not exist, cannot remove`;
+      LDEBUG(errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    await historyRef.remove();
+    await statisticsRef.remove();
+    // Delete the recording file, `force` makes this a no-op if the file does not exist
+    await fs.rm(Session.recordingFilePathFor(sessionId), { force: true });
+  } catch (error) {
+    const errorMessage = `Session '${sessionId}': failed to remove session history`;
+    LERROR(errorMessage, error);
+    throw new Error(`${errorMessage}: ${(error as Error).message}`, { cause: error });
+  }
+  LINFO(`Session '${sessionId}': history, statistics, and recording file removed`);
+}
+
+/**
  * Updates the active status of a server instance in the database.
  *
  * @param sessionId The ID of the server instance to update
@@ -332,7 +408,7 @@ export async function updateActiveSessionStatus(
 ): Promise<void> {
   try {
     const db = getDatabase(adminDbApp);
-    const instanceRef = db.ref(`SessionData/${sessionId}`);
+    const instanceRef = db.ref(`${DB_PATHS.sessionData}/${sessionId}`);
     const snapshot = await instanceRef.once('value');
 
     if (!snapshot.exists()) {
@@ -362,7 +438,7 @@ export async function updateCurrentActiveUsers(
 ): Promise<void> {
   try {
     const db = getDatabase(adminDbApp);
-    const instanceRef = db.ref(`SessionData/${sessionId}`);
+    const instanceRef = db.ref(`${DB_PATHS.sessionData}/${sessionId}`);
     const snapshot = await instanceRef.once('value');
 
     if (!snapshot.exists()) {
@@ -385,7 +461,7 @@ export async function updateCurrentActiveUsers(
 export async function updateStatistics(sessionId: string, nPeers: number): Promise<void> {
   try {
     const db = getDatabase(adminDbApp);
-    const statisticsRef = db.ref(`Statistics/${sessionId}`);
+    const statisticsRef = db.ref(`${DB_PATHS.statistics}/${sessionId}`);
     const stats: StatisticData = {
       nPeers: nPeers,
       timestamp: Date.now()
@@ -406,7 +482,7 @@ export async function updateStatistics(sessionId: string, nPeers: number): Promi
 export async function updateCurrentHost(sessionId: string, host: string) {
   try {
     const db = getDatabase(adminDbApp);
-    const instanceRef = db.ref(`SessionData/${sessionId}`);
+    const instanceRef = db.ref(`${DB_PATHS.sessionData}/${sessionId}`);
     const snapshot = await instanceRef.once('value');
     if (!snapshot.exists()) {
       throw new Error(`Could not find instance with id '${sessionId}'`);
@@ -426,7 +502,7 @@ export async function updateCurrentHost(sessionId: string, host: string) {
 export async function updateUsage(sessionId: string) {
   try {
     const db = getDatabase(adminDbApp);
-    const instanceRef = db.ref(`SessionData/${sessionId}`);
+    const instanceRef = db.ref(`${DB_PATHS.sessionData}/${sessionId}`);
     const snapshot = await instanceRef.once('value');
     if (!snapshot.exists()) {
       throw new Error(`Could not find instance with id '${sessionId}'`);

@@ -13,6 +13,19 @@ export type SessionData = {
   profile: string;
   isPrivate: boolean;
   owner: string;
+  description: string;
+  version: string;
+  keepAlive: boolean;
+  startDate: number;
+  endDate: number;
+};
+
+export type SessionCreateOptions = {
+  description?: string;
+  version?: string;
+  keepAlive?: boolean;
+  startDate?: number;
+  endDate?: number;
 };
 
 export type SessionHistoryData = {
