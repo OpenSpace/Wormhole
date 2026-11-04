@@ -36,6 +36,7 @@ export type SessionHistoryData = {
   usage: number;
   roomName: string;
   owner: string;
+  description: string;
 };
 
 export type StatisticData = {

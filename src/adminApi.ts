@@ -322,7 +322,8 @@ export async function postSessionHistoryData(session: SessionData): Promise<void
       uptime: uptime,
       usage: session.usage,
       roomName: session.roomName,
-      owner: session.owner
+      owner: session.owner,
+      description: session.description
     };
     await historyRef.set(history);
     LDEBUG(`Session '${session.id}': history data posted to database`, history);
