@@ -37,6 +37,8 @@ export type SessionHistoryData = {
   roomName: string;
   owner: string;
   description: string;
+  // Set when the owner removes the session; only admins see and can permanently delete it.
+  removedByUser?: boolean;
 };
 
 export type StatisticData = {

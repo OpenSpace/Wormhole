@@ -38,6 +38,7 @@ import {
   getSessionHistory,
   getSessionsFromDb,
   getUserByID,
+  markSessionHistoryRemoved,
   NotFoundError,
   postSession,
   removeSessionFromDb,
@@ -116,8 +117,12 @@ export class App {
     this._app.post(`${apiPath}/request-session`, this.handleRequestSession.bind(this));
     this._app.post(`${apiPath}/session/:id/claim-host`, this.handleClaimHost.bind(this));
     this._app.post(`${apiPath}/session/:id/close`, this.handleCloseSession.bind(this));
+    this._app.post(
+      `${apiPath}/session/:id/history/remove`,
+      this.handleMarkSessionHistoryRemoved.bind(this)
+    );
     this._app.delete(
-      `${apiPath}/session/:id/history`,
+      `${apiPath}/session/:id/history/delete`,
       this.handleRemoveSessionHistory.bind(this)
     );
     this._app.delete(
@@ -299,14 +304,17 @@ export class App {
   }
 
   /**
-   * Handle a request to completely remove a previous session from the server. The
-   * session owner or a user with admin rights may remove a session. Deletes the history
-   * entry, the statistics, and the recording file.
+   * Handle a request to remove a previous session on behalf of a user. The session is
+   * only marked as removed, nothing is deleted. The session owner or a user with admin
+   * rights may remove a session.
    *
    * @param req Request params must contain the session id as `/:id`; must include a
    *            valid Bearer token in the authorization header
    */
-  private async handleRemoveSessionHistory(req: Request, res: Response): Promise<void> {
+  private async handleMarkSessionHistoryRemoved(
+    req: Request,
+    res: Response
+  ): Promise<void> {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       res.status(401).json({ error: 'Missing or invalid authorization header' });
@@ -332,6 +340,48 @@ export class App {
       if (history.owner !== uid) {
         // Not the owner, only admins may remove someone else's session
         await authorizeAdmin(token);
+      }
+      await markSessionHistoryRemoved(sessionId);
+      res.status(200).json({ message: `Session '${sessionId}' removed` });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        res.status(403).json({ error: (error as Error).message });
+      } else {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    }
+  }
+
+  /**
+   * Handle a request to permanently remove a previous session from the server. Only
+   * users with admin rights may do this. Deletes the history entry, the statistics, and
+   * the recording file.
+   *
+   * @param req Request params must contain the session id as `/:id`; must include a
+   *            valid admin Bearer token in the authorization header
+   */
+  private async handleRemoveSessionHistory(req: Request, res: Response): Promise<void> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid authorization header' });
+      return;
+    }
+    const token = authHeader.slice(7);
+    const sessionId = req.params.id;
+
+    if (!isValidSessionId(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+
+    try {
+      await authorizeAdmin(token);
+      const history = await getSessionHistory(sessionId);
+      if (!history) {
+        res
+          .status(404)
+          .json({ error: `Session history with id '${sessionId}' does not exist` });
+        return;
       }
       await removeSessionHistory(sessionId);
       res.status(200).json({ message: `Session history for '${sessionId}' removed` });
@@ -556,6 +606,17 @@ export class App {
       if (!session) {
         res.status(404).json({ error: `Session with id '${sessionId}' does not exist` });
         return;
+      }
+      // Sessions removed by the user are only available to admins
+      if ('removedByUser' in session && session.removedByUser) {
+        try {
+          await authorizeAdmin(token);
+        } catch {
+          res
+            .status(404)
+            .json({ error: `Session with id '${sessionId}' does not exist` });
+          return;
+        }
       }
       const filePath = Session.recordingFilePathFor(sessionId);
       res.download(filePath, `${sessionId}.astrorec`, (error) => {

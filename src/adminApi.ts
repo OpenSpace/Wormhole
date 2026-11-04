@@ -363,6 +363,34 @@ export async function removeSessionFromDb(sessionId: string): Promise<void> {
 }
 
 /**
+ * Marks a previous session as removed by the user. The history entry, statistics, and
+ * recording file are kept so an admin can decide whether to delete them permanently.
+ *
+ * @param sessionId The ID of the session to mark as removed
+ * @return A promise once the operation is complete or an exception if an error occurs
+ */
+export async function markSessionHistoryRemoved(sessionId: string): Promise<void> {
+  try {
+    const db = getDatabase(adminDbApp);
+    const historyRef = db.ref(`${DB_PATHS.sessionHistory}/${sessionId}`);
+    const historySnapshot = await historyRef.once('value');
+
+    if (!historySnapshot.exists()) {
+      const errorMessage = `Session '${sessionId}': does not exist, cannot remove`;
+      LDEBUG(errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    await historyRef.update({ removedByUser: true });
+  } catch (error) {
+    const errorMessage = `Session '${sessionId}': failed to remove session`;
+    LERROR(errorMessage, error);
+    throw new Error(`${errorMessage}: ${(error as Error).message}`, { cause: error });
+  }
+  LINFO(`Session '${sessionId}': history marked as removed by user`);
+}
+
+/**
  * Completely removes a previous session from the server: deletes the history entry and
  * the statistics from the database, and deletes the recording file from disk (if it
  * exists).
