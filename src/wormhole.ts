@@ -31,7 +31,7 @@ import {
   Peer
 } from './types/types';
 import { Session } from './session';
-import { LDEBUG, LERROR, LINFO } from './utils';
+import { isAscii, LDEBUG, LERROR, LINFO } from './utils';
 
 const NeedMoreData = 0;
 const ProtocolError = -1;
@@ -387,7 +387,7 @@ export class Wormhole {
       .subarray(offset, offset + sessionNameLength)
       .toString('utf-8');
     offset += sessionNameLength;
-    if (!/^[\x00-\x7F]*$/.test(sessionName)) {
+    if (!isAscii(sessionName)) {
       return { authenticated: false, message: 'Invalid session name (must be ASCII)' };
     }
     peer.sessionName = sessionName;

@@ -34,19 +34,38 @@ import {
   ForbiddenError,
   getHostPassword,
   getHostPasswordInternal,
+  getSessionData,
+  getSessionHistory,
   getSessionsFromDb,
   getUserByID,
+  markSessionHistoryRemoved,
   NotFoundError,
   postSession,
   removeSessionFromDb,
+  removeSessionHistory,
   setAdminRights,
   subscribeToDatabase,
   verifyHostPassword
 } from './adminApi';
 import { DB_PATHS } from './constants';
 import { Session } from './session';
-import { LERROR, LINFO } from './utils';
+import { isAscii, LERROR, LINFO } from './utils';
 import { Wormhole } from './wormhole';
+
+// The alphabet used by Firebase push keys. Session IDs are validated against it before
+// being interpolated into database paths or file system paths, which prevents path
+// traversal/injection attacks
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Checks that a session ID is a non-empty string consisting only of characters that
+ * Firebase push keys use.
+ *
+ * @param sessionId The session ID to validate
+ */
+function isValidSessionId(sessionId: string | string[]): sessionId is string {
+  return typeof sessionId === 'string' && SESSION_ID_PATTERN.test(sessionId);
+}
 
 /**
  * Top-level application coordinator. Owns the HTTP REST API and the Wormhole TCP server.
@@ -97,6 +116,15 @@ export class App {
     );
     this._app.post(`${apiPath}/request-session`, this.handleRequestSession.bind(this));
     this._app.post(`${apiPath}/session/:id/claim-host`, this.handleClaimHost.bind(this));
+    this._app.post(`${apiPath}/session/:id/close`, this.handleCloseSession.bind(this));
+    this._app.post(
+      `${apiPath}/session/:id/history/remove`,
+      this.handleMarkSessionHistoryRemoved.bind(this)
+    );
+    this._app.delete(
+      `${apiPath}/session/:id/history/delete`,
+      this.handleRemoveSessionHistory.bind(this)
+    );
     this._app.delete(
       `${apiPath}/session/:id/remove`,
       this.handleRemoveSession.bind(this)
@@ -201,8 +229,8 @@ export class App {
     const token = authHeader.slice(7);
     const instanceID = req.params.id;
 
-    if (!instanceID || typeof instanceID !== 'string') {
-      res.status(400).json({ error: 'Instance ID is required' });
+    if (!isValidSessionId(instanceID)) {
+      res.status(400).json({ error: 'Invalid session ID' });
       return;
     }
 
@@ -229,6 +257,141 @@ export class App {
     const msg = await this._wormhole.removeSession(instanceID);
     await removeSessionFromDb(instanceID);
     return msg;
+  }
+
+  /**
+   * Handle a request to close a session. The session owner or a user with admin rights
+   * may close a session. Closing disconnects all connected peers, stops the recording,
+   * and moves the session to the history database.
+   *
+   * @param req Request params must contain the session id as `/:id`; must include a
+   *            valid Bearer token in the authorization header
+   */
+  private async handleCloseSession(req: Request, res: Response): Promise<void> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid authorization header' });
+      return;
+    }
+    const token = authHeader.slice(7);
+    const sessionId = req.params.id;
+
+    if (!isValidSessionId(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+
+    try {
+      const uid = await authorizeUser(token);
+      const session = await getSessionData(sessionId);
+      if (!session) {
+        res.status(404).json({ error: `Session with id '${sessionId}' does not exist` });
+        return;
+      }
+      if (session.owner !== uid) {
+        // Not the owner, only admins may close someone else's session
+        await authorizeAdmin(token);
+      }
+      const msg = await this.removeSession(sessionId);
+      res.status(200).json({ message: msg });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        res.status(403).json({ error: (error as Error).message });
+      } else {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    }
+  }
+
+  /**
+   * Handle a request to remove a previous session on behalf of a user. The session is
+   * only marked as removed, nothing is deleted. The session owner or a user with admin
+   * rights may remove a session.
+   *
+   * @param req Request params must contain the session id as `/:id`; must include a
+   *            valid Bearer token in the authorization header
+   */
+  private async handleMarkSessionHistoryRemoved(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid authorization header' });
+      return;
+    }
+    const token = authHeader.slice(7);
+    const sessionId = req.params.id;
+
+    if (!isValidSessionId(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+
+    try {
+      const uid = await authorizeUser(token);
+      const history = await getSessionHistory(sessionId);
+      if (!history) {
+        res
+          .status(404)
+          .json({ error: `Session history with id '${sessionId}' does not exist` });
+        return;
+      }
+      if (history.owner !== uid) {
+        // Not the owner, only admins may remove someone else's session
+        await authorizeAdmin(token);
+      }
+      await markSessionHistoryRemoved(sessionId);
+      res.status(200).json({ message: `Session '${sessionId}' removed` });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        res.status(403).json({ error: (error as Error).message });
+      } else {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    }
+  }
+
+  /**
+   * Handle a request to permanently remove a previous session from the server. Only
+   * users with admin rights may do this. Deletes the history entry, the statistics, and
+   * the recording file.
+   *
+   * @param req Request params must contain the session id as `/:id`; must include a
+   *            valid admin Bearer token in the authorization header
+   */
+  private async handleRemoveSessionHistory(req: Request, res: Response): Promise<void> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid authorization header' });
+      return;
+    }
+    const token = authHeader.slice(7);
+    const sessionId = req.params.id;
+
+    if (!isValidSessionId(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
+      return;
+    }
+
+    try {
+      await authorizeAdmin(token);
+      const history = await getSessionHistory(sessionId);
+      if (!history) {
+        res
+          .status(404)
+          .json({ error: `Session history with id '${sessionId}' does not exist` });
+        return;
+      }
+      await removeSessionHistory(sessionId);
+      res.status(200).json({ message: `Session history for '${sessionId}' removed` });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        res.status(403).json({ error: (error as Error).message });
+      } else {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    }
   }
 
   /**
@@ -269,6 +432,65 @@ export class App {
       return;
     }
 
+    // OpenSpace only supports single-byte characters when displaying, so reject
+    // non-ASCII values early instead of creating a session that cannot be used
+    if (!isAscii(roomName)) {
+      res
+        .status(400)
+        .json({ error: 'Invalid room name, must contain only ASCII characters' });
+      return;
+    }
+    if (password !== null && !isAscii(password)) {
+      res
+        .status(400)
+        .json({ error: 'Invalid password, must contain only ASCII characters' });
+      return;
+    }
+    if (!isAscii(hostPassword)) {
+      res
+        .status(400)
+        .json({ error: 'Invalid host password, must contain only ASCII characters' });
+      return;
+    }
+
+    const description = req.body.description ?? '';
+    const version = req.body.version ?? '';
+    const keepAlive = req.body.keepAlive ?? false;
+    const startDate = req.body.startDate ?? 0;
+    const endDate = req.body.endDate ?? 0;
+    if (typeof description !== 'string' || description.length > 500) {
+      res.status(400).json({
+        error: 'Invalid description, must be a string of at most 500 characters'
+      });
+      return;
+    }
+    if (typeof version !== 'string' || version.length > 100) {
+      res
+        .status(400)
+        .json({ error: 'Invalid version, must be a string of at most 100 characters' });
+      return;
+    }
+    if (typeof keepAlive !== 'boolean') {
+      res.status(400).json({ error: 'Invalid keepAlive, must be a boolean' });
+      return;
+    }
+    if (typeof startDate !== 'number' || !Number.isFinite(startDate)) {
+      res
+        .status(400)
+        .json({ error: 'Invalid startDate, must be a number of epoch milliseconds' });
+      return;
+    }
+    if (typeof endDate !== 'number' || !Number.isFinite(endDate)) {
+      res
+        .status(400)
+        .json({ error: 'Invalid endDate, must be a number of epoch milliseconds' });
+      return;
+    }
+    if (startDate !== 0 && endDate !== 0 && endDate <= startDate) {
+      res.status(400).json({ error: 'endDate must be after startDate' });
+      return;
+    }
+
     // Check if the provided room name is unique
     const sessions = await getSessionsFromDb();
     const isRoomNameUnique = sessions.every((instance: SessionData) => {
@@ -290,7 +512,13 @@ export class App {
 
       let sessionData: SessionData;
       try {
-        sessionData = await postSession(session, profile, isPrivateRoom, uid);
+        sessionData = await postSession(session, profile, isPrivateRoom, uid, {
+          description,
+          version,
+          keepAlive,
+          startDate,
+          endDate
+        });
       } catch (error) {
         await this._wormhole.removeSession(session);
         LERROR(
@@ -329,8 +557,8 @@ export class App {
     const token = authHeader.slice(7);
     const sessionId = req.params.id;
 
-    if (!sessionId || typeof sessionId !== 'string') {
-      res.status(400).json({ error: 'Session ID is required' });
+    if (!isValidSessionId(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
       return;
     }
 
@@ -350,7 +578,8 @@ export class App {
   }
 
   /**
-   * Handle a request to download a session's recording file
+   * Handle a request to download a session's recording file. Any authenticated user may
+   * download the recording of a live or historical session.
    *
    * @param req Request params must contain the session id as `/:id`
    */
@@ -363,18 +592,32 @@ export class App {
     const token = authHeader.slice(7);
     const sessionId = req.params.id;
 
-    if (!sessionId || typeof sessionId !== 'string') {
-      res.status(400).json({ error: 'Session ID is required' });
-      return;
-    }
-
-    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
-      res.status(400).json({ error: 'Invalid session ID format' });
+    if (!isValidSessionId(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
       return;
     }
 
     try {
+      // Any authenticated user may download a recording; the lookup only verifies that
+      // the session exists, either live or already moved to history
       await authorizeUser(token);
+      const session =
+        (await getSessionData(sessionId)) ?? (await getSessionHistory(sessionId));
+      if (!session) {
+        res.status(404).json({ error: `Session with id '${sessionId}' does not exist` });
+        return;
+      }
+      // Sessions removed by the user are only available to admins
+      if ('removedByUser' in session && session.removedByUser) {
+        try {
+          await authorizeAdmin(token);
+        } catch {
+          res
+            .status(404)
+            .json({ error: `Session with id '${sessionId}' does not exist` });
+          return;
+        }
+      }
       const filePath = Session.recordingFilePathFor(sessionId);
       res.download(filePath, `${sessionId}.astrorec`, (error) => {
         if (error && !res.headersSent) {
@@ -382,7 +625,7 @@ export class App {
           res.status(404).json({ error: 'Recording file not found' });
         }
       });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to download recording file' });
     }
   }
@@ -404,8 +647,8 @@ export class App {
     const sessionId = req.params.id;
     const { password } = req.body;
 
-    if (!sessionId || typeof sessionId !== 'string') {
-      res.status(400).json({ error: 'Session ID is required' });
+    if (!isValidSessionId(sessionId)) {
+      res.status(400).json({ error: 'Invalid session ID' });
       return;
     }
 
@@ -462,9 +705,14 @@ export class App {
       // over it, unsure of the behaviour of that
       const sessionsToRemove: SessionData[] = [];
       for (const session of sessions) {
-        // If the server has been running for more than 30 inactive minutes we kill it
+        // If the server has been running for more than 30 inactive minutes we kill it,
+        // unless the owner asked to keep the session alive
         const inactiveUptime = now - session.inactiveTimestamp;
-        if (!session.active && inactiveUptime > this.EmptyServerGracePeriod) {
+        if (
+          !session.active &&
+          !session.keepAlive &&
+          inactiveUptime > this.EmptyServerGracePeriod
+        ) {
           sessionsToRemove.push(session);
         }
       }

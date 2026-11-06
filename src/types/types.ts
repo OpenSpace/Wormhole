@@ -13,6 +13,19 @@ export type SessionData = {
   profile: string;
   isPrivate: boolean;
   owner: string;
+  description: string;
+  version: string;
+  keepAlive: boolean;
+  startDate: number;
+  endDate: number;
+};
+
+export type SessionCreateOptions = {
+  description?: string;
+  version?: string;
+  keepAlive?: boolean;
+  startDate?: number;
+  endDate?: number;
 };
 
 export type SessionHistoryData = {
@@ -23,6 +36,9 @@ export type SessionHistoryData = {
   usage: number;
   roomName: string;
   owner: string;
+  description: string;
+  // Set when the owner removes the session; only admins see and can permanently delete it.
+  removedByUser?: boolean;
 };
 
 export type StatisticData = {

@@ -65,3 +65,15 @@ export function LINFO(message: string, ...params: any[]): void {
   // eslint-disable-next-line no-console
   console.log(FgWhite, message, ...params);
 }
+
+/**
+ * Checks whether the provided string consists only of ASCII characters.
+ *
+ * @param value The string to check
+ * @return True if all characters in the string are ASCII, false otherwise
+ */
+// The \x00 escape is intentional, it matches the full ASCII range
+export function isAscii(value: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return /^[\x00-\x7F]*$/.test(value);
+}
