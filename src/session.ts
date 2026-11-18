@@ -40,7 +40,7 @@ import {
   updateCurrentHost,
   updateUsage
 } from './adminApi';
-import { LDEBUG, LERROR } from './utils';
+import { isAscii, LDEBUG, LERROR } from './utils';
 
 /**
  * A named room that manages a group of connected peers. One peer may act as the host,
@@ -118,13 +118,15 @@ export class Session {
   /**
    * Creates a new Session.
    *
-   * @param name The unique name of this session
+   * @param name The unique name of this session. Must consist only of ASCII characters.
    * @param password The password peers must provide to join. Maximum 65535 ASCII
    *                 characters.
    * @param hostPassword The password peers must provide to claim hostship. Maximum 65535
    *                     ASCII characters.
    * @param id The unique ID assigned by the Firebase database provider, or null if not
    *           yet set
+   * @throws Error If the name, password, or host password contains non-ASCII characters,
+   *         since OpenSpace only supports single-byte characters when displaying
    */
   constructor(
     name: string,
@@ -132,6 +134,18 @@ export class Session {
     hostPassword: string,
     id: string | null = null
   ) {
+    // OpenSpace only supports single-byte `char` when displaying strings, so a
+    // session with non-ASCII data would be corrupted when passed to or from
+    // OpenSpace. Reject such sessions outright.
+    if (!isAscii(name)) {
+      throw new Error(`Session name must contain only ASCII characters: '${name}'`);
+    }
+    if (!isAscii(password ?? '')) {
+      throw new Error('Session password must contain only ASCII characters');
+    }
+    if (!isAscii(hostPassword)) {
+      throw new Error('Session host password must contain only ASCII characters');
+    }
     this.name = name;
     this.password = password ?? '';
     this.hostPassword = hostPassword;
